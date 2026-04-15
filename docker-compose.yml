@@ -1,0 +1,40 @@
+services: # Aquí declaramos todos los contenedores (las piezas) de nuestro sistema.
+
+  base_datos: # Nombre de este servicio.
+    image: postgis/postgis:17-master 
+    environment: # Variables de entorno. Son configuraciones ocultas.
+      POSTGRES_USER: ${POSTGRES_USER}       # Define el usuario de la BD.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}  # Define la contraseña.
+      POSTGRES_DB: ${POSTGRES_DB}   # Crea una base de datos con este nombre al arrancar.
+    ports:
+      - "5432:5432" # Conecta el puerto de tu computadora real (izq) con el del contenedor (der).
+    volumes:
+      - datos_pg:/var/lib/postgresql/data
+
+  almacenamiento-objetos:
+    image: minio/minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    ports:
+      - "9000:9000"  # Puerto por donde se comunica el código (FastAPI)
+      - "9001:9001"  # Puerto para entrar por el navegador a ver los archivos
+    volumes:
+      - datos_minio:/data
+
+  api_fastapi:
+    build: ./api # A diferencia de 'image', 'build' le dice a Docker "No lo descargues de internet. Ve a la carpeta local llamada '/api', lee el archivo Dockerfile que está ahí y construye la imagen desde cero con mi código Python".
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@base_datos:5432/${POSTGRES_DB}
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
+    ports:
+      - "8000:8000" # Exponemos el puerto para que puedas entrar a http://localhost:8000
+    depends_on: # Regla de orden: Le dice a Docker que no arranque la API hasta que la base de datos esté funcionando, porque la API la necesita para arrancar.
+      - base_datos
+      - almacenamiento-objetos
+
+volumes:
+  datos_pg:
+  datos_minio:
