@@ -1,0 +1,12 @@
+# FastAPI
+fastapi
+uvicorn
+# PostgreSQL & GIS
+sqlalchemy
+psycopg2-binary
+geoalchemy2
+# Redis
+redis
+# MinIO
+python-multipart
+minio
