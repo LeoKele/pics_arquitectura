@@ -1,45 +1,31 @@
-# PICS Proyecto
+# PICS - Arquitectura Backend (Sistema de Detección Vial)
 
-Este proyecto es una API construida con FastAPI para el registro y almacenamiento de videos, utilizando PostgreSQL (PostGIS) para metadatos y MinIO para el almacenamiento de archivos.
+Este repositorio contiene la arquitectura backend en contenedores para el Proyecto Integrador de Ciencias de Datos (PICS). El sistema se encarga de recibir videos de recorridos viales, encolar el procesamiento y gestionar las detecciones de daños en el asfalto (baches, piel de cocodrilo, calles de tierra) utilizando una arquitectura orientada a microservicios.
 
-## 📋 Requisitos Previos
+## Arquitectura del Sistema
 
-- [Docker](https://www.docker.com/get-started) instalado.
-- [Docker Compose](https://docs.docker.com/compose/install/) instalado.
+El proyecto utiliza Docker Compose para orquestar los siguientes servicios:
+- **API (FastAPI)**: Expone los endpoints RESTful para la carga de datos y consulta de resultados.
+- **Worker (Python)**: Proceso en segundo plano que consume tareas de la cola y simula la inferencia del modelo YOLO.
+- **Base de Datos (PostgreSQL + PostGIS)**: Almacena el estado de los videos y las coordenadas geográficas de las detecciones.
+- **Cola de Mensajes (Redis)**: Gestiona la cola de tareas asíncronas entre la API y el Worker.
+- **Almacenamiento de Objetos (MinIO)**: Guarda los archivos crudos (`.mp4` y `.json` de metadata).
 
-## ⚙️ Configuración
+## Cómo levantar el entorno 
 
-Antes de iniciar, debes configurar las variables de entorno:
+Para ejecutar este proyecto en una carpeta limpia, asegúrate de tener instalado [Docker](https://www.docker.com/) y `docker-compose`.
 
-1. Copia el archivo de ejemplo:
+1. **Clonar el repositorio:**
+   ```bash
+   git clone [https://github.com/TuUsuario/pics_arquitectura.git](https://github.com/TuUsuario/pics_arquitectura.git)
+   cd pics_arquitectura
+
+2. **Configurar variables de entorno:**
+   Copia el archivo de ejemplo para crear tu propio .env local.
    ```bash
    cp .env.example .env
-   ```
-2. Abre el archivo `.env` y ajusta las credenciales si es necesario (por defecto ya vienen configuradas para desarrollo local).
 
-## 🚀 Puesta en Marcha
-
-Para levantar todos los servicios (Base de Datos, MinIO y API), ejecuta:
-
-```bash
-docker-compose up --build
-```
-
-Esto iniciará:
-- **API FastAPI:** `http://localhost:8000`
-- **Panel de MinIO (Consola):** `http://localhost:9001` (User/Password en `.env`)
-- **PostgreSQL/PostGIS:** Puerto `5432`
-
-## 🛠️ Cómo Probar la API
-
-Una vez que los contenedores estén corriendo, puedes interactuar con la API directamente desde el navegador:
-
-1. Ve a: **[http://localhost:8000/docs](http://localhost:8000/docs)**
-2. Verás la interfaz de Swagger UI.
-3. Puedes probar el endpoint `POST /videos/` cargando un archivo de video pequeño para verificar que se guarde en MinIO y se registre en la base de datos.
-
-## 📁 Estructura del Proyecto
-
-- `/api`: Código fuente de la aplicación Python/FastAPI.
-- `docker-compose.yml`: Definición de los servicios de infraestructura.
-- `.env`: Archivo de credenciales (ignorado por Git).
+3. **Levantar los contenedores:**
+   Ejecuta el siguiente comando para construir las imágenes y levantar toda la infraestructura:
+   ```bash
+   docker-compose up --build -d
