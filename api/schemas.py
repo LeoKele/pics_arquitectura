@@ -1,16 +1,34 @@
 from pydantic import BaseModel
 from datetime import datetime
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
-# Lo que devolvemos al subir un video
+# Esquemas para Videos
+class VideoBase(BaseModel):
+    nombre_archivo: str
+    nombre_metadata: str
+
 class VideoResponse(BaseModel):
     mensaje: str
     video_id: int
     estado: str
 
-# Lo que devolvemos al pedir las detecciones
+    class Config:
+        from_attributes = True
+
+class VideoStatusResponse(BaseModel):
+    id: int
+    estado: str
+
+# Esquemas para Detecciones
 class DeteccionResponse(BaseModel):
     id: int
-    tipo: str
+    video_id: int
+    tipo_dano: str
+    confianza: float
     geometria: Dict[str, Any]
     fecha: datetime
+    frame_minio_path: Optional[str] = None
+    estado_auditoria: str
+
+    class Config:
+        from_attributes = True

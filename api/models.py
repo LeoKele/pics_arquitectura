@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime
+from sqlalchemy import Column, Integer, String, DateTime, Float, ForeignKey
 from geoalchemy2 import Geometry
 from datetime import datetime
 from database import Base
@@ -14,8 +14,10 @@ class Video(Base):
 class Deteccion(Base):
     __tablename__ = "deteccion"
     id = Column(Integer, primary_key=True, index=True)
-    tipo = Column(String)
-    ubicacion = Column(Geometry(geometry_type='POINT', srid=4326))
+    video_id = Column(Integer, ForeignKey("video.id"))
+    geom = Column(Geometry(geometry_type='POINT', srid=4326))
+    tipo_dano = Column(String)
+    confianza = Column(Float)
+    frame_minio_path = Column(String, nullable=True)
+    estado_auditoria = Column(String, default="pendiente")
     fecha_deteccion = Column(DateTime, default=datetime.utcnow)
-    video_id = Column(Integer)
-

@@ -18,7 +18,7 @@ SessionLocal = sessionmaker(bind=engine)
 Base = declarative_base()
 
 # ---------------------------------------------------------
-# Nombres de tablas
+# Modelos para el Worker
 
 class Video(Base):
     __tablename__ = "video" 
@@ -29,15 +29,16 @@ class Deteccion(Base):
     __tablename__ = "deteccion"
     id = Column(Integer, primary_key=True)
     video_id = Column(Integer, ForeignKey("video.id"))
-    ubicacion = Column(Geometry('POINT', srid=4326))
-    tipo = Column(String)
+    geom = Column(Geometry('POINT', srid=4326))
+    tipo_dano = Column(String)
     confianza = Column(Float)
+    frame_minio_path = Column(String, nullable=True)
+    estado_auditoria = Column(String, default="pendiente")
     fecha_deteccion = Column(DateTime, default=datetime.utcnow)
 
 # Conexión a Redis
 try:
     r = redis.Redis(host=REDIS_HOST, port=6379, db=0)
-    # Hacemos un ping para asegurar que redis está vivo al arrancar
     r.ping()
     print("Worker iniciado y conectado a Redis, esperando tareas...")
 except Exception as e:
@@ -46,7 +47,6 @@ except Exception as e:
 
 while True:
     try:
-        # BLPOP bloquea hasta que haya un mensaje en la cola 'tareas_video'
         resultado = r.blpop("tareas_video")
         if not resultado:
             continue
@@ -76,9 +76,11 @@ while True:
             punto_moreno = Point(-58.79, -34.65) # Coordenadas fake
             nueva_deteccion = Deteccion(
                 video_id=video_id,
-                ubicacion=from_shape(punto_moreno, srid=4326),
-                tipo="bache",
-                confianza=0.85
+                geom=from_shape(punto_moreno, srid=4326),
+                tipo_dano="bache",
+                confianza=0.85,
+                frame_minio_path=f"frames/{video_id}/deteccion_1.jpg",
+                estado_auditoria="pendiente"
             )
             db.add(nueva_deteccion)
 
@@ -88,25 +90,20 @@ while True:
             print(f"[V] Video {video_id} finalizado con éxito.")
 
         except Exception as e:
-            # Si CUALQUIER COSA falla, hacemos rollback para no dejar la DB sucia
             db.rollback()
             print(f"[X] Error procesando el video {video_id}: {str(e)}")
-            # Imprimimos la traza completa para poder debuggear si falla
             traceback.print_exc() 
             
-            # Intentamos marcar el video como 'error'
             if 'video' in locals() and video:
                 try:
                     video.estado = "error"
                     db.commit()
-                    print(f"    -> Estado del video {video_id} actualizado a 'error'.")
-                except Exception as inner_e:
-                    print(f"    -> CRÍTICO: Tampoco se pudo actualizar el estado a error: {inner_e}")
+                except Exception:
+                    pass
 
         finally:
-            # Siempre, pase lo que pase, cerramos la sesión de la DB
             db.close()
 
     except Exception as general_error:
         print(f"[X] Error general en el loop del worker: {general_error}")
-        time.sleep(2) # Pausa breve para no spamear la consola si Redis se cae
+        time.sleep(2)

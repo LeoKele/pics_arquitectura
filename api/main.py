@@ -26,11 +26,19 @@ minio_client = Minio(
 )
 BUCKET_NAME = "videos-crudos"
 
+# ===============================================================================================
+# ===============================================================================================
+# ===============================================================================================
+
 app = FastAPI(title="PICS API", version="1.0.0")
+
+# ===============================================================================================
 
 @app.get("/")
 def raiz():
     return {"mensaje": "API PICS v1 funcionando correctamente"}
+
+# ===============================================================================================
 
 @app.post("/api/v1/videos", status_code=status.HTTP_202_ACCEPTED, response_model=schemas.VideoResponse)
 def subir_video(
@@ -39,8 +47,8 @@ def subir_video(
     db: Session = Depends(get_db)
 ):
     # Validación básica para que no rompa por subir cualquier archivo
-    if not video.filename.endswith('.mp4'):
-        raise HTTPException(status_code=422, detail="El archivo de video debe ser .mp4")
+    if not video.filename.endswith(('.mp4', '.webm')):
+        raise HTTPException(status_code=422, detail="El archivo de video debe ser .mp4 o .webm")
     if not metadata.filename.endswith('.json'):
         raise HTTPException(status_code=422, detail="El archivo de metadata debe ser .json")
 
@@ -80,22 +88,46 @@ def subir_video(
         "estado": nuevo_video.estado
     }
 
+# ===============================================================================================
+
 @app.get("/api/v1/detecciones", response_model=list[schemas.DeteccionResponse])
 def obtener_detecciones(db: Session = Depends(get_db)):
     detecciones = db.query(
         models.Deteccion.id,
-        models.Deteccion.tipo,
-        ST_AsGeoJSON(models.Deteccion.ubicacion).label("geometria"),
-        models.Deteccion.fecha_deteccion
+        models.Deteccion.video_id,
+        models.Deteccion.tipo_dano,
+        models.Deteccion.confianza,
+        ST_AsGeoJSON(models.Deteccion.geom).label("geometria"),
+        models.Deteccion.fecha_deteccion,
+        models.Deteccion.frame_minio_path,
+        models.Deteccion.estado_auditoria
     ).all()
     
     resultado = []
     for d in detecciones:
         resultado.append({
             "id": d.id,
-            "tipo": d.tipo,
+            "video_id": d.video_id,
+            "tipo_dano": d.tipo_dano,
+            "confianza": d.confianza,
             "geometria": json.loads(d.geometria),
-            "fecha": d.fecha_deteccion
+            "fecha": d.fecha_deteccion,
+            "frame_minio_path": d.frame_minio_path,
+            "estado_auditoria": d.estado_auditoria
         })
         
     return resultado
+
+
+# ===============================================================================================
+@app.get("/api/v1/videos/{video_id}", response_model=schemas.VideoStatusResponse)
+def obtener_estado_video(video_id: int, db: Session = Depends(get_db)):
+    # Buscamos el video en la base de datos por su ID
+    video = db.query(models.Video).filter(models.Video.id == video_id).first()
+    
+    # Si alguien pide un ID que no existe (ej. video 999), devolvemos error 404
+    if not video:
+        raise HTTPException(status_code=404, detail="Video no encontrado")
+        
+    # Si existe, devolvemos su estado actual
+    return {"id": video.id, "estado": video.estado}
