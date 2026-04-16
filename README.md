@@ -15,17 +15,12 @@ El proyecto utiliza Docker Compose para orquestar los siguientes servicios:
 
 Para ejecutar este proyecto en una carpeta limpia, asegúrate de tener instalado [Docker](https://www.docker.com/) y `docker-compose`.
 
-1. **Clonar el repositorio:**
-   ```bash
-   git clone [https://github.com/TuUsuario/pics_arquitectura.git](https://github.com/TuUsuario/pics_arquitectura.git)
-   cd pics_arquitectura
-
-2. **Configurar variables de entorno:**
+1. **Configurar variables de entorno:**
    Copia el archivo de ejemplo para crear tu propio .env local.
    ```bash
    cp .env.example .env
 
-3. **Levantar los contenedores:**
+2. **Levantar los contenedores:**
    Ejecuta el siguiente comando para construir las imágenes y levantar toda la infraestructura:
    ```bash
    docker-compose up --build -d
