@@ -1,9 +1,12 @@
 # FastAPI
 fastapi
 uvicorn
-# PostgreSQL
-sqlalchemy # ORM (traductor logico)
-psycopg2-binary #driver fisico que permite que Python se conecte especificamnte a un motor PostgreSQL
-#Minio 
-python-multipart #obligatorio en FastAPI para habilitar la subida de archivos fisicos
+# PostgreSQL & GIS
+sqlalchemy
+psycopg2-binary
+geoalchemy2
+# Redis
+redis
+# MinIO
+python-multipart
 minio
