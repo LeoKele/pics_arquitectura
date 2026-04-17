@@ -24,3 +24,15 @@ Para ejecutar este proyecto en una carpeta limpia, asegúrate de tener instalado
    Ejecuta el siguiente comando para construir las imágenes y levantar toda la infraestructura:
    ```bash
    docker-compose up --build -d
+
+
+3. **Pre-Commit**
+   En caso de no haber ejecutado nunca pre-commit correr en la terminal:
+   !Es importante tener la carpeta vinculada a un repositorio de Github!
+
+   "
+   pip install pre-commit detect-secrets
+   detect-secrets scan > .secrets.baseline
+   pre-commit install
+   "
+

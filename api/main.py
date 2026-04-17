@@ -7,27 +7,37 @@ import redis
 import os
 import json
 import time
+import logging
+import httpx
 
 from database import engine, get_db
 import models
 import schemas
 
+# ── Logging ───────────────────────────────────────────────────────────────────
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s - %(message)s",
+)
+logger = logging.getLogger("api")
+
 # Crea las tablas si no existen
 for intento in range(10):
     try:
         models.Base.metadata.create_all(bind=engine)
-        print("✓ Tablas creadas/verificadas correctamente.")
+        logger.info("Tablas creadas/verificadas correctamente.")
         break
     except Exception as e:
-        print(f"⚠ BD no lista, reintentando en 3s... ({intento+1}/10): {e}")
+        logger.warning(f"BD no lista, reintentando en 3s... ({intento+1}/10): {e}")
         time.sleep(3)
 else:
-    print("✗ No se pudo conectar a la BD después de 10 intentos.")
+    logger.error("No se pudo conectar a la BD después de 10 intentos.")
     raise SystemExit(1)
 
 # Configuración de conexiones externas
 REDIS_HOST = os.getenv("REDIS_HOST", "redis_queue")
 r = redis.Redis(host=REDIS_HOST, port=6379, decode_responses=True)
+
 
 minio_client = Minio(
     "almacenamiento-objetos:9000",
@@ -59,8 +69,10 @@ def subir_video(
 ):
     # Validación básica para que no rompa por subir cualquier archivo
     if not video.filename.endswith(('.mp4', '.webm')):
+        logger.warning(f"Archivo rechazado por extensión inválida: {video.filename}")
         raise HTTPException(status_code=422, detail="El archivo de video debe ser .mp4 o .webm")
     if not metadata.filename.endswith('.json'):
+        logger.warning(f"Metadata rechazada por extensión inválida: {metadata.filename}")
         raise HTTPException(status_code=422, detail="El archivo de metadata debe ser .json")
 
     try:
@@ -73,9 +85,12 @@ def subir_video(
         minio_client.put_object(
             BUCKET_NAME, metadata.filename, metadata.file, metadata.size, content_type=metadata.content_type
         )
+        logger.info(f"Archivos subidos a MinIO: {video.filename}, {metadata.filename}")
+
     except S3Error as e:
+        logger.error(f"Error en MinIO al subir archivos: {e}")
         raise HTTPException(status_code=500, detail=f"Error en MinIO: {str(e)}")
-    
+
     # Registro en la base de datos
     nuevo_video = models.Video(
         nombre_archivo=video.filename,
@@ -85,16 +100,18 @@ def subir_video(
     db.add(nuevo_video)
     db.commit()
     db.refresh(nuevo_video)
-    
+    logger.info(f"Video registrado en BD con ID: {nuevo_video.id}")
+
+
     # Enviar tarea a Redis
     try:
         r.rpush("tareas_video", nuevo_video.id)
+        logger.info(f"Tarea encolada en Redis para video ID: {nuevo_video.id}")
     except Exception as e:
-        # Registramos el error de Redis pero no fallamos la request
-        print(f"Error al enviar a Redis: {e}")
-    
+        logger.error(f"Error al enviar tarea a Redis para video ID {nuevo_video.id}: {e}")
+
     return {
-        "mensaje": "Video y metadata recibidos correctamente", 
+        "mensaje": "Video y metadata recibidos correctamente",
         "video_id": nuevo_video.id,
         "estado": nuevo_video.estado
     }
@@ -103,6 +120,8 @@ def subir_video(
 
 @app.get("/api/v1/detecciones", response_model=list[schemas.DeteccionResponse])
 def obtener_detecciones(db: Session = Depends(get_db)):
+    logger.info("Consultando todas las detecciones")
+
     detecciones = db.query(
         models.Deteccion.id,
         models.Deteccion.video_id,
@@ -113,7 +132,7 @@ def obtener_detecciones(db: Session = Depends(get_db)):
         models.Deteccion.frame_minio_path,
         models.Deteccion.estado_auditoria
     ).all()
-    
+
     resultado = []
     for d in detecciones:
         resultado.append({
@@ -126,19 +145,122 @@ def obtener_detecciones(db: Session = Depends(get_db)):
             "frame_minio_path": d.frame_minio_path,
             "estado_auditoria": d.estado_auditoria
         })
-        
+
+    logger.info(f"Devolviendo {len(resultado)} detecciones")
     return resultado
 
 
 # ===============================================================================================
 @app.get("/api/v1/videos/{video_id}", response_model=schemas.VideoStatusResponse)
 def obtener_estado_video(video_id: int, db: Session = Depends(get_db)):
-    # Buscamos el video en la base de datos por su ID
+    logger.info(f"Consultando estado del video ID: {video_id}")
+
     video = db.query(models.Video).filter(models.Video.id == video_id).first()
-    
-    # Si alguien pide un ID que no existe (ej. video 999), devolvemos error 404
     if not video:
+        logger.warning(f"Video ID {video_id} no encontrado")
         raise HTTPException(status_code=404, detail="Video no encontrado")
-        
-    # Si existe, devolvemos su estado actual
+
+    logger.info(f"Video ID {video_id} → estado: {video.estado}")
     return {"id": video.id, "estado": video.estado}
+
+
+
+OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434")
+
+@app.post("/api/v1/reporte/{video_id}", status_code=status.HTTP_201_CREATED)
+def generar_reporte(video_id: int, db: Session = Depends(get_db)):
+    logger.info(f"Generando reporte para video ID: {video_id}")
+
+    # 1. Verificar que el video existe y está procesado
+    video = db.query(Video).filter(Video.id == video_id).first()
+    if not video:
+        logger.warning(f"Video ID {video_id} no encontrado")
+        raise HTTPException(status_code=404, detail="Video no encontrado")
+    if video.estado != "procesado":
+        logger.warning(f"Video ID {video_id} aún no procesado, estado: {video.estado}")
+        raise HTTPException(status_code=400, detail=f"El video aún no fue procesado. Estado actual: {video.estado}")
+
+    # 2. Obtener detecciones de ese video
+    detecciones = db.query(Deteccion).filter(Deteccion.video_id == video_id).all()
+    cantidad = len(detecciones)
+    confianza_promedio = (
+        sum(d.confianza for d in detecciones) / cantidad if cantidad > 0 else 0
+    )
+    logger.info(f"Video ID {video_id}: {cantidad} detecciones, confianza promedio: {confianza_promedio:.2f}")
+
+    # 3. Armar el prompt
+    prompt = f"""Sos un inspector vial municipal del partido de Moreno, provincia de Buenos Aires.
+Basándote en los siguientes datos de una inspección de calles, redactá un informe ejecutivo breve y formal en español.
+
+Datos de la inspección:
+- Video ID: {video_id}
+- Archivo inspeccionado: {video.nombre_archivo}
+- Fecha de inspección: {video.fecha_ingreso.strftime('%d/%m/%Y')}
+- Cantidad de baches detectados: {cantidad}
+- Confianza promedio del modelo: {confianza_promedio:.0%}
+
+El informe debe tener exactamente 3 párrafos:
+1. Resumen ejecutivo de la inspección
+2. Análisis del estado vial detectado
+3. Recomendación de acción prioritaria
+
+Sé conciso y profesional."""
+
+    # 4. Llamar a Ollama
+    try:
+        response = httpx.post(
+            f"{OLLAMA_URL}/api/generate",
+            json={
+                "model": "llama3.2:3b",
+                "prompt": prompt,
+                "stream": False
+            },
+            timeout=120.0
+        )
+        response.raise_for_status()
+        contenido_reporte = response.json()["response"]
+        logger.info(f"Reporte generado correctamente para video ID: {video_id}")
+
+    except httpx.TimeoutException:
+        logger.error(f"Timeout al llamar a Ollama para video ID: {video_id}")
+        raise HTTPException(status_code=504, detail="Ollama no respondió a tiempo")
+    except Exception as e:
+        logger.error(f"Error al llamar a Ollama: {e}")
+        raise HTTPException(status_code=500, detail="Error al generar el reporte")
+
+    # 5. Guardar en BD
+    nuevo_reporte = Reporte(
+        video_id=video_id,
+        contenido=contenido_reporte
+    )
+    db.add(nuevo_reporte)
+    db.commit()
+    db.refresh(nuevo_reporte)
+    logger.info(f"Reporte ID: {nuevo_reporte.id} guardado en BD")
+
+    return {
+        "reporte_id": nuevo_reporte.id,
+        "video_id": video_id,
+        "fecha_generacion": nuevo_reporte.fecha_generacion,
+        "contenido": contenido_reporte
+    }
+
+
+@app.get("/api/v1/reporte/{video_id}")
+def obtener_reporte(video_id: int, db: Session = Depends(get_db)):
+    logger.info(f"Consultando reporte para video ID: {video_id}")
+
+    reporte = db.query(Reporte).filter(
+        Reporte.video_id == video_id
+    ).order_by(Reporte.fecha_generacion.desc()).first()
+
+    if not reporte:
+        logger.warning(f"No hay reporte para video ID: {video_id}")
+        raise HTTPException(status_code=404, detail="No hay reporte generado para este video")
+
+    return {
+        "reporte_id": reporte.id,
+        "video_id": video_id,
+        "fecha_generacion": reporte.fecha_generacion,
+        "contenido": reporte.contenido
+    }

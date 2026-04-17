@@ -41,6 +41,7 @@ services: # Aquí declaramos todos los contenedores (las piezas) de nuestro sist
       - MINIO_ROOT_USER=${MINIO_ROOT_USER}
       - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
       - REDIS_HOST=redis_queue
+      - OLLAMA_URL=http://ollama:11434
     ports:
       - "8000:8000" # Exponemos el puerto para que puedas entrar a http://localhost:8000
     depends_on: # Regla de orden: Le dice a Docker que no arranque la API hasta que la base de datos esté funcionando, porque la API la necesita para arrancar.
@@ -49,6 +50,8 @@ services: # Aquí declaramos todos los contenedores (las piezas) de nuestro sist
       almacenamiento-objetos:
         condition: service_started
       redis_queue:
+        condition: service_started
+      ollama:
         condition: service_started
 
   worker_procesamiento:
@@ -62,6 +65,43 @@ services: # Aquí declaramos todos los contenedores (las piezas) de nuestro sist
       redis_queue:
         condition: service_started
 
+
+# ── LOGS ────────────────────────────────────────────────────────
+
+  loki:
+    image: grafana/loki:2.7.0
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+
+  promtail:
+    image: grafana/promtail:2.7.0
+    volumes:
+      - ./observabilidad/promtail-config.yml:/etc/promtail/config.yml
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: -config.file=/etc/promtail/config.yml
+    depends_on:
+      - loki
+
+  grafana:
+    image: grafana/grafana:10.4.0
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_USER}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD}
+    depends_on:
+      - loki
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - datos_ollama:/root/.ollama
+
+
 volumes:
   datos_pg:
   datos_minio:
+  datos_ollama:

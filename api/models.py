@@ -21,3 +21,13 @@ class Deteccion(Base):
     frame_minio_path = Column(String, nullable=True)
     estado_auditoria = Column(String, default="pendiente")
     fecha_deteccion = Column(DateTime, default=datetime.utcnow)
+
+# Ollama ----------------------
+
+class Reporte(Base):
+    __tablename__ = "reportes"
+    id = Column(Integer, primary_key=True, index=True)
+    video_id = Column(Integer, index=True)
+    contenido = Column(String)
+    fecha_generacion = Column(DateTime, default=datetime.utcnow)
+

@@ -10,3 +10,4 @@ redis
 # MinIO
 python-multipart
 minio
+httpx
