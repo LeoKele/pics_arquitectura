@@ -14,7 +14,7 @@ from minio import Minio
 from minio.error import S3Error
 from sqlalchemy.orm import Session
 
-# ── Logging ───────────────────────────────────────────────────────────────────
+# Logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s - %(message)s",
@@ -47,8 +47,6 @@ minio_client = Minio(
 )
 BUCKET_NAME = "videos-crudos"
 
-# ===============================================================================================
-# ===============================================================================================
 # ===============================================================================================
 
 app = FastAPI(title="Mapeo Vial Moreno", version="1.1.3")
@@ -227,8 +225,8 @@ def generar_reporte(video_id: int, db: Session = Depends(get_db)):
         )
 
         # 3. Armar el prompt
-        prompt = f"""Sos un inspector vial municipal del partido de Moreno, provincia de Buenos Aires.
-        Basándote en los siguientes datos de una inspección de calles, redactá un informe ejecutivo breve y formal en español.
+        prompt = f"""Sos un inspector vial municipal del partido de Moreno, provincia de Buenos Aires. # noqa: E501
+        Basándote en los siguientes datos de una inspección de calles, redactá un informe ejecutivo breve y formal en español. # noqa: E501
 
         Datos de la inspección:
         - Video ID: {video_id}
@@ -255,7 +253,7 @@ def generar_reporte(video_id: int, db: Session = Depends(get_db)):
         if response.status_code == 404:
             raise HTTPException(
                 status_code=500,
-                detail="Ollama respondió 404. Es probable que no hayas descargado el modelo. Entra a tu terminal y ejecuta: docker exec -it tu_contenedor_ollama ollama run llama3.2:3b",
+                detail="Ollama respondió 404. Es probable que no hayas descargado el modelo. Entra a tu terminal y ejecuta: docker exec -it tu_contenedor_ollama ollama run llama3.2:3b",  # noqa: E501
             )
 
         response.raise_for_status()
@@ -294,7 +292,6 @@ def generar_reporte(video_id: int, db: Session = Depends(get_db)):
 def obtener_reporte(video_id: int, db: Session = Depends(get_db)):
     logger.info(f"Consultando reporte para video ID: {video_id}")
 
-    # AQUI CORREGIDO: models.Reporte
     reporte = (
         db.query(models.Reporte)
         .filter(models.Reporte.video_id == video_id)

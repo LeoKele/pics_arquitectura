@@ -15,9 +15,9 @@ El proyecto utiliza Docker Compose para orquestar los siguientes servicios:
 
 ## Desarrollo y calidad
 
-- **Pre-Commit:** Funciona como un pipeline de validacion automatica antes de cada commit en Git. Utiliza herramientas de formateo (Black), orden de dependencias (Isort), linting (Flake8) y escaneo de credenciales (detect-secrets) para asegurar que el codigo sea seguro, limpio y estandarizado. 
+- **Pre-Commit:** Funciona como un pipeline de validacion automatica antes de cada commit en Git. Utiliza herramientas de formateo (Black), orden de dependencias (Isort), linting (Flake8) y escaneo de credenciales (detect-secrets) para asegurar que el codigo sea seguro, limpio y estandarizado.
 
-## Cómo levantar el entorno 
+## Cómo levantar el entorno
 
 Para ejecutar este proyecto en una carpeta limpia, asegúrate de tener instalado [Docker](https://www.docker.com/) y `docker-compose`.
 
@@ -36,7 +36,7 @@ Para ejecutar este proyecto en una carpeta limpia, asegúrate de tener instalado
    pre-commit install
    "
 
-2. **Levantar los contenedores:**
+3. **Levantar los contenedores:**
    Ejecuta el siguiente comando para construir las imágenes y levantar toda la infraestructura:
    ```bash
    docker-compose up --build -d
@@ -62,19 +62,19 @@ Para ejecutar este proyecto en una carpeta limpia, asegúrate de tener instalado
 
    **Buscar errores (flake8):** Lee el código buscando variables definidas sin usar o lineas muy largas.
 
-   **Errores de seguridad (detect-secrets):** Ayuda a que no se permita hacer un commit de .env el cual contiene las credenciales para la base de datos, minIO y Grafana. 
+   **Errores de seguridad (detect-secrets):** Ayuda a que no se permita hacer un commit de .env el cual contiene las credenciales para la base de datos, minIO y Grafana.
 
-   **Limpieza básica:** Elimina espacios en blanco inncesarios al final de las lineas. 
+   **Limpieza básica:** Elimina espacios en blanco inncesarios al final de las lineas.
 
 
    Cuando se hagamos un commit, se ejecutará automáticamente. Pero hay una forma de correrlo manual si queremos verlo antes de hacer Commit, en la terminal ejecutar: "pre-commit run --all-files"
 
 
-- **Modelo IA (Ollama):** Esta herramienta permite descargar un modelo de lenguaje (IA) y ejecutarlo directamente sin depender de enviar los datos a traves de internet a los servidores de una empresa como OpenAI. 
+- **Modelo IA (Ollama):** Esta herramienta permite descargar un modelo de lenguaje (IA) y ejecutarlo directamente sin depender de enviar los datos a traves de internet a los servidores de una empresa como OpenAI.
 
-Todo se procesa de forma local, no salen de la infraestructura. Funciona de manera offline. 
+Todo se procesa de forma local, no salen de la infraestructura. Funciona de manera offline.
 
-Ollama se encuentra aislado en un container en Docker. Adentro posee el modelo "llama3.2:3b" (Version optimizada y liviana de Meta AI). Cuando se pide generar un reporte hace lo siguiente: 
+Ollama se encuentra aislado en un container en Docker. Adentro posee el modelo "llama3.2:3b" (Version optimizada y liviana de Meta AI). Cuando se pide generar un reporte hace lo siguiente:
    1. FastAPI recopila los datos crudos de la bd
    2. FastAPI arma un prompt y se lo envia a Ollama (puerto 11434)
    3. Ollama lee los datos, redacta el parrafo de informe y se lo devuelve a FastAPI
@@ -83,9 +83,11 @@ Ollama se encuentra aislado en un container en Docker. Adentro posee el modelo "
 
 
 - **Loki + Promtail + Grafana**
-
+"http://localhost:3000/"
 **Promtail** Funciona como un recolector que levanta todos los textos y errores de Dcoker. Los etiqueta y los envia
 
 **Loki** Recibe los logs de Promtail y los guarda de forma optimizada. Solo indexa las etiquetas.
 
 **Grafana** Es la interfaz grafica. Se conecta a Loki y te permite ver todos los logs en tiempo real, armar gráficos, filtrar por errores, entre otros.
+Ejemplo Grafana para visualizar: '{job="docker"} |= "api" '
+Esto mostrara lo logs de la palabra "api", se puede hacer lo mismo con "worker" y demas.

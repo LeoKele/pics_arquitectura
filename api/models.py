@@ -26,9 +26,7 @@ class Deteccion(Base):
     fecha_deteccion = Column(DateTime, default=datetime.utcnow)
 
 
-# Ollama ----------------------
-
-
+# Ollama
 class Reporte(Base):
     __tablename__ = "reportes"
     id = Column(Integer, primary_key=True, index=True)
