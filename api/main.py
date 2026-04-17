@@ -2,7 +2,6 @@ import json
 import logging
 import os
 import time
-
 import httpx
 import models
 import redis
