@@ -1,14 +1,23 @@
-import time
-import redis
-import os
 import logging
+import os
+import time
 import traceback
 from datetime import datetime
-from sqlalchemy import create_engine, Column, Integer, String, Float, ForeignKey, DateTime
-from sqlalchemy.orm import sessionmaker, declarative_base
+
+import redis
 from geoalchemy2 import Geometry
 from geoalchemy2.shape import from_shape
 from shapely.geometry import Point
+from sqlalchemy import (
+    Column,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    create_engine,
+)
+from sqlalchemy.orm import declarative_base, sessionmaker
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -16,7 +25,6 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s - %(message)s",
 )
 logger = logging.getLogger("worker")
-
 
 
 # Configuración
@@ -30,21 +38,24 @@ Base = declarative_base()
 # ---------------------------------------------------------
 # Modelos para el Worker
 
+
 class Video(Base):
-    __tablename__ = "video" 
+    __tablename__ = "video"
     id = Column(Integer, primary_key=True)
     estado = Column(String)
+
 
 class Deteccion(Base):
     __tablename__ = "deteccion"
     id = Column(Integer, primary_key=True)
     video_id = Column(Integer, ForeignKey("video.id"))
-    geom = Column(Geometry('POINT', srid=4326))
+    geom = Column(Geometry("POINT", srid=4326))
     tipo_dano = Column(String)
     confianza = Column(Float)
     frame_minio_path = Column(String, nullable=True)
     estado_auditoria = Column(String, default="pendiente")
     fecha_deteccion = Column(DateTime, default=datetime.utcnow)
+
 
 # Conexión a Redis
 try:
@@ -62,14 +73,16 @@ while True:
             continue
 
         mensaje = resultado[1]
-        video_id = int(mensaje.decode('utf-8'))
+        video_id = int(mensaje.decode("utf-8"))
         logger.info(f"Tarea recibida para video ID: {video_id}")
 
         db = SessionLocal()
         try:
             video = db.query(Video).filter(Video.id == video_id).first()
             if not video:
-                logger.warning(f"Video ID {video_id} no encontrado en BD, descartando tarea")
+                logger.warning(
+                    f"Video ID {video_id} no encontrado en BD, descartando tarea"
+                )
                 continue
 
             video.estado = "procesando"
@@ -86,7 +99,7 @@ while True:
                 tipo_dano="bache",
                 confianza=0.85,
                 frame_minio_path=f"frames/{video_id}/deteccion_1.jpg",
-                estado_auditoria="pendiente"
+                estado_auditoria="pendiente",
             )
             db.add(nueva_deteccion)
 
@@ -99,7 +112,7 @@ while True:
             logger.error(f"Error procesando video ID {video_id}: {e}")
             logger.debug(traceback.format_exc())
 
-            if 'video' in locals() and video:
+            if "video" in locals() and video:
                 try:
                     video.estado = "error"
                     db.commit()

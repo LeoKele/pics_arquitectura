@@ -1,7 +1,7 @@
 services: # Aquí declaramos todos los contenedores (las piezas) de nuestro sistema.
 
   base_datos: # Nombre de este servicio.
-    image: postgis/postgis:17-master 
+    image: postgis/postgis:17-master
     environment: # Variables de entorno. Son configuraciones ocultas.
       POSTGRES_USER: ${POSTGRES_USER}       # Define el usuario de la BD.
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}  # Define la contraseña.
@@ -53,6 +53,8 @@ services: # Aquí declaramos todos los contenedores (las piezas) de nuestro sist
         condition: service_started
       ollama:
         condition: service_started
+    volumes:
+      - ./api:/api
 
   worker_procesamiento:
     build: ./worker

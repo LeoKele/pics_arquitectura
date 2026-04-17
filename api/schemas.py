@@ -1,11 +1,14 @@
-from pydantic import BaseModel
 from datetime import datetime
 from typing import Any, Dict, Optional
+
+from pydantic import BaseModel
+
 
 # Esquemas para Videos
 class VideoBase(BaseModel):
     nombre_archivo: str
     nombre_metadata: str
+
 
 class VideoResponse(BaseModel):
     mensaje: str
@@ -15,9 +18,11 @@ class VideoResponse(BaseModel):
     class Config:
         from_attributes = True
 
+
 class VideoStatusResponse(BaseModel):
     id: int
     estado: str
+
 
 # Esquemas para Detecciones
 class DeteccionResponse(BaseModel):
