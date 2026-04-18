@@ -2,7 +2,7 @@ from datetime import datetime
 
 from database import Base
 from geoalchemy2 import Geometry
-from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer, String
+from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer, String, Text
 
 
 class Video(Base):
@@ -28,8 +28,8 @@ class Deteccion(Base):
 
 # Ollama
 class Reporte(Base):
-    __tablename__ = "reportes"
+    __tablename__ = "reporte"
     id = Column(Integer, primary_key=True, index=True)
-    video_id = Column(Integer, index=True)
-    contenido = Column(String)
+    video_id = Column(Integer, ForeignKey("video.id"))
+    contenido = Column(Text)
     fecha_generacion = Column(DateTime, default=datetime.utcnow)
