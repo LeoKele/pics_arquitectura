@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import time
+
 import httpx
 import models
 import redis
@@ -309,4 +310,34 @@ def obtener_reporte(video_id: int, db: Session = Depends(get_db)):
         "video_id": video_id,
         "fecha_generacion": reporte.fecha_generacion,
         "contenido": reporte.contenido,
+    }
+
+
+@app.patch("/api/v1/detecciones/{deteccion_id}", status_code=status.HTTP_200_OK)
+def auditar_deteccion(
+    deteccion_id: int, nuevo_estado: str, db: Session = Depends(get_db)
+):
+    logger.info(f"Iniciando auditoría para detección ID: {deteccion_id}")
+
+    deteccion = (
+        db.query(models.Deteccion).filter(models.Deteccion.id == deteccion_id).first()
+    )
+
+    if not deteccion:
+        logger.warning(f"Detección ID {deteccion_id} no encontrada para auditar")
+        raise HTTPException(status_code=404, detail="Detección no encontrada")
+
+    deteccion.estado_auditoria = nuevo_estado
+
+    db.commit()
+    db.refresh(deteccion)
+
+    logger.info(
+        f"Detección {deteccion_id} auditada con éxito. Nuevo estado: {nuevo_estado}"
+    )
+
+    return {
+        "mensaje": "Estado de auditoría actualizado correctamente",
+        "id": deteccion.id,
+        "estado_actual": deteccion.estado_auditoria,
     }
