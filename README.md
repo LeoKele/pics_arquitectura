@@ -30,11 +30,11 @@ Para ejecutar este proyecto en una carpeta limpia, asegúrate de tener instalado
    En caso de no haber ejecutado nunca pre-commit correr en la terminal:
 
    !Es importante tener la carpeta vinculada a un repositorio de Github!
-   "
+   ```bash
    pip install pre-commit detect-secrets
    detect-secrets scan > .secrets.baseline
    pre-commit install
-   "
+
 
 3. **Levantar los contenedores:**
    Ejecuta el siguiente comando para construir las imágenes y levantar toda la infraestructura:
@@ -47,7 +47,7 @@ Para ejecutar este proyecto en una carpeta limpia, asegúrate de tener instalado
    Con los contenedores ya corriendo, ejecuta en tu terminal:
 
 
-   docker exec -it pics_arquitectura-main-ollama-1 ollama run llama3.2:3b
+   ``docker exec -it pics_arquitectura-main-ollama-1 ollama run llama3.2:3b``
    (Nota: Si el comando falla porque no encuentra el contenedor, revisa el nombre exacto ejecutando docker ps y buscando el contenedor de Ollama).
 
 
@@ -91,3 +91,33 @@ Ollama se encuentra aislado en un container en Docker. Adentro posee el modelo "
 **Grafana** Es la interfaz grafica. Se conecta a Loki y te permite ver todos los logs en tiempo real, armar gráficos, filtrar por errores, entre otros.
 Ejemplo Grafana para visualizar: '{job="docker"} |= "api" '
 Esto mostrara lo logs de la palabra "api", se puede hacer lo mismo con "worker" y demas.
+
+## Ejemplo de uso (Paso a paso)
+
+Para comprobar que todo el sistema está funcionando correctamente, podés seguir este flujo de prueba:
+
+1. **Carga de archivos:**
+   - Entrá a la documentación interactiva en `http://localhost:8000/docs`.
+   - Buscá el endpoint `POST /api/v1/videos`.
+   - Hacé clic en "Try it out" y subí un archivo de video (`.mp4` o `.webm`) y un archivo `.json` de metadata.
+   - Al ejecutar, la API te devolverá un `video_id` (por ejemplo: `1`).
+
+2. **Verificación en MinIO:**
+   - Accedé al panel de MinIO en `http://localhost:9001`.
+   - Logueate con las credenciales de tu `.env` (`MINIO_ROOT_USER` y `MINIO_ROOT_PASSWORD`).
+   - En el bucket `videos-crudos` deberías ver los archivos subidos.
+
+3. **Procesamiento del Worker:**
+   - El `worker.py` detectará automáticamente la nueva tarea en la cola de Redis.
+   - Simulará el procesamiento (espera unos segundos) y guardará una detección de prueba en Moreno.
+   - Podrás ver en los logs (o vía API) que el estado del video cambia a `procesado`.
+
+4. **Generar Reporte con IA:**
+   - Con el `video_id` obtenido, volvé a `http://localhost:8000/docs`.
+   - Buscá el endpoint `POST /api/v1/reporte/{video_id}` e ingresá el ID.
+   - La API consultará a Ollama y te devolverá un informe ejecutivo redactado por la IA sobre las detecciones.
+
+5. **Verificación de Base de Datos (Opcional):**
+   - Podés conectarte a la base de datos con un cliente como **pgAdmin4** o DBeaver.
+   - **Host:** `localhost`, **Puerto:** `5433`.
+   - Podrás verificar que los registros se crearon correctamente en las tablas `video`, `deteccion` y `reporte`.
