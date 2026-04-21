@@ -1,15 +1,21 @@
 services: # Aquí declaramos todos los contenedores (las piezas) de nuestro sistema.
 
   base_datos: # Nombre de este servicio.
-    image: postgis/postgis:17-master 
+    image: postgis/postgis:17-master
     environment: # Variables de entorno. Son configuraciones ocultas.
       POSTGRES_USER: ${POSTGRES_USER}       # Define el usuario de la BD.
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}  # Define la contraseña.
       POSTGRES_DB: ${POSTGRES_DB}   # Crea una base de datos con este nombre al arrancar.
     ports:
-      - "5432:5432" # Conecta el puerto de tu computadora real (izq) con el del contenedor (der).
+      - "5433:5432" # Conecta el puerto de tu computadora real (izq) con el del contenedor (der).
     volumes:
       - datos_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
 
   almacenamiento-objetos:
     image: minio/minio
@@ -35,12 +41,20 @@ services: # Aquí declaramos todos los contenedores (las piezas) de nuestro sist
       - MINIO_ROOT_USER=${MINIO_ROOT_USER}
       - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
       - REDIS_HOST=redis_queue
+      - OLLAMA_URL=http://ollama:11434
     ports:
       - "8000:8000" # Exponemos el puerto para que puedas entrar a http://localhost:8000
     depends_on: # Regla de orden: Le dice a Docker que no arranque la API hasta que la base de datos esté funcionando, porque la API la necesita para arrancar.
-      - base_datos
-      - almacenamiento-objetos
-      - redis_queue
+      base_datos:
+        condition: service_healthy   # <-- espera el healthcheck
+      almacenamiento-objetos:
+        condition: service_started
+      redis_queue:
+        condition: service_started
+      ollama:
+        condition: service_started
+    volumes:
+      - ./api:/api
 
   worker_procesamiento:
     build: ./worker
@@ -48,9 +62,48 @@ services: # Aquí declaramos todos los contenedores (las piezas) de nuestro sist
       - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@base_datos:5432/${POSTGRES_DB}
       - REDIS_HOST=redis_queue
     depends_on:
-      - base_datos
-      - redis_queue
+      base_datos:
+        condition: service_healthy   # <-- ídem
+      redis_queue:
+        condition: service_started
+
+
+# ── LOGS ────────────────────────────────────────────────────────
+
+  loki:
+    image: grafana/loki:2.7.0
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+
+  promtail:
+    image: grafana/promtail:2.7.0
+    volumes:
+      - ./observabilidad/promtail-config.yml:/etc/promtail/config.yml
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    command: -config.file=/etc/promtail/config.yml
+    depends_on:
+      - loki
+
+  grafana:
+    image: grafana/grafana:10.4.0
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_USER}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD}
+    depends_on:
+      - loki
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - datos_ollama:/root/.ollama
+
 
 volumes:
   datos_pg:
   datos_minio:
+  datos_ollama:
