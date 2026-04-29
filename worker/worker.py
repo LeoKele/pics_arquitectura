@@ -3,7 +3,7 @@ import logging
 import os
 import traceback
 from datetime import datetime
-
+import time
 import cv2
 import redis
 from geoalchemy2 import Geometry
