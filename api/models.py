@@ -29,7 +29,7 @@ class Deteccion(Base):
 # Ollama
 class Reporte(Base):
     __tablename__ = "reporte"
-    id = Column(Integer, primary_key=True, index=True)
-    video_id = Column(Integer, ForeignKey("video.id"))
-    contenido = Column(Text)
+    id = Column(Integer, primary_key=True)
+    video_id = Column(Integer, ForeignKey("video.id"), nullable=True, unique=True)
+    contenido = Column(String)
     fecha_generacion = Column(DateTime, default=datetime.utcnow)

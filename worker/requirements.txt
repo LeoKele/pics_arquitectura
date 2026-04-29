@@ -3,3 +3,7 @@ sqlalchemy
 psycopg2-binary
 geoalchemy2
 shapely
+opencv-python-headless
+numpy
+minio
+ultralytics
