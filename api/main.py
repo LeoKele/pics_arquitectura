@@ -216,193 +216,138 @@ OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434")
 )
 def generar_reporte(request: GenerarReporteRequest, db: Session = Depends(get_db)):
     try:
-        resultados = []
+        # 1. Determinar qué videos incluir
+        query_videos = db.query(models.Video).filter(models.Video.estado == "procesado")
 
-        # =================================================================
-        # CASO A: Lista específica de videos (Ej: [15, 16]) -> Reportes Individuales
-        # =================================================================
         if request.video_ids:
-            videos = (
-                db.query(models.Video)
-                .filter(
-                    models.Video.id.in_(request.video_ids),
-                    models.Video.estado == "procesado",
-                )
-                .all()
+            query_videos = query_videos.filter(models.Video.id.in_(request.video_ids))
+
+        videos = query_videos.all()
+
+        if not videos:
+            detalle = "No se encontraron videos procesados"
+            if request.video_ids:
+                detalle += f" para los IDs: {request.video_ids}"
+            raise HTTPException(status_code=404, detail=detalle)
+
+        ids_v = [v.id for v in videos]
+
+        # 2. Análisis espacial agrupado (Clusters de todos los videos seleccionados)
+        # Convertimos la lista de IDs a una tupla para la query SQL
+        query_global = text("""
+            WITH clusters AS (
+                SELECT tipo_dano, confianza,
+                       ST_ClusterDBSCAN(geom, 0.00005, 1) 
+                       OVER(PARTITION BY tipo_dano) as cluster_id
+                FROM deteccion WHERE video_id IN :ids
             )
+            SELECT MAX(confianza) as conf_max FROM clusters GROUP BY tipo_dano, cluster_id
+        """)
 
-            if not videos:
-                raise HTTPException(
-                    status_code=404, detail="No se encontraron los videos indicados."
-                )
+        # Ejecutar con el parámetro ids
+        baches_agrupados = db.execute(query_global, {"ids": tuple(ids_v)}).fetchall()
 
-            for video in videos:
+        cantidad_baches = len(baches_agrupados)
+        confianza_promedio = (
+            sum(r.conf_max for r in baches_agrupados) / cantidad_baches
+            if cantidad_baches > 0
+            else 0
+        )
 
-                query_clusters = text("""
-                    WITH clusters AS (
-                        SELECT tipo_dano, confianza,
-                               ST_ClusterDBSCAN(geom, 0.00005, 1) OVER(PARTITION BY tipo_dano) as cluster_id
-                        FROM deteccion WHERE video_id = :v_id
-                    )
-                    SELECT MAX(confianza) as conf_max FROM clusters GROUP BY tipo_dano, cluster_id
-                """)
-                baches_agrupados = db.execute(
-                    query_clusters, {"v_id": video.id}
-                ).fetchall()
+        # 3. Preparar el contexto para el Prompt
+        es_global = len(request.video_ids) == 0
+        contexto_scope = (
+            "global de todo el municipio"
+            if es_global
+            else f"de los videos con IDs: {ids_v}"
+        )
 
-                cantidad_baches = len(baches_agrupados)
-                confianza_promedio = (
-                    sum(r.conf_max for r in baches_agrupados) / cantidad_baches
-                    if cantidad_baches > 0
-                    else 0
-                )
-                # -------------------------------------------------------------
+        prompt = f"""Sos un inspector vial municipal de Moreno. Redactá un informe ejecutivo breve y formal en español.
 
-                prompt = f"""Sos un inspector vial municipal de Moreno.
-                Redactá un informe ejecutivo breve y formal en español.
+        Datos de la inspección {contexto_scope}:
+        - Cantidad de videos analizados: {len(videos)}
+        - Cantidad total de baches reales detectados en conjunto: {cantidad_baches}
+        - Confianza promedio de la IA: {confianza_promedio:.0%}
 
-                Datos de la inspección:
-                - Archivo de origen: {video.nombre_archivo}
-                - Cantidad de baches reales detectados: {cantidad_baches}
-                - Confianza promedio de la IA: {confianza_promedio:.0%}
+        El informe debe tener 3 párrafos exactos:
+        1. Resumen ejecutivo del área analizada.
+        2. Análisis del estado vial basado en los datos de detección.
+        3. Recomendación de acción prioritaria para el municipio.
+        Sé conciso y profesional."""
 
-                El informe debe tener 3 párrafos exactos:
-                1. Resumen ejecutivo.
-                2. Análisis del estado vial.
-                3. Recomendación de acción prioritaria.
-                Sé conciso y profesional."""
+        logger.info(
+            f"Pidiendo reporte a Ollama para {len(videos)} videos ({contexto_scope})..."
+        )
 
-                logger.info(f"Pidiendo reporte a Ollama para el video {video.id}...")
-                response = httpx.post(
-                    f"{OLLAMA_URL}/api/generate",
-                    json={"model": "llama3.2:3b", "prompt": prompt, "stream": False},
-                    timeout=120.0,
-                )
-                response.raise_for_status()
-                contenido_reporte = response.json().get("response")
+        response = httpx.post(
+            f"{OLLAMA_URL}/api/generate",
+            json={"model": "llama3.2:3b", "prompt": prompt, "stream": False},
+            timeout=120.0,
+        )
+        response.raise_for_status()
+        contenido_reporte = response.json().get("response")
 
-                # Guardar en BD
-                reporte_db = (
-                    db.query(models.Reporte)
-                    .filter(models.Reporte.video_id == video.id)
-                    .first()
-                )
-                if reporte_db:
-                    reporte_db.contenido = contenido_reporte
-                    reporte_db.fecha_generacion = datetime.utcnow()
-                else:
-                    nuevo_reporte = models.Reporte(
-                        video_id=video.id, contenido=contenido_reporte
-                    )
-                    db.add(nuevo_reporte)
+        # 4. Guardar en BD (Primero el reporte, luego las relaciones)
+        nuevo_reporte = models.Reporte(contenido=contenido_reporte)
+        db.add(nuevo_reporte)
+        db.flush()  # Para obtener el ID del reporte antes del commit
 
-                resultados.append({"video_id": video.id, "reporte": contenido_reporte})
+        for v in videos:
+            relacion = models.ReporteVideo(video_id=v.id, reporte_id=nuevo_reporte.id)
+            db.add(relacion)
 
-            db.commit()
-            return {
-                "mensaje": f"Se generaron y guardaron {len(resultados)} reportes individuales.",
-                "reportes": resultados,
-            }
+        db.commit()
 
-        # =================================================================
-        # CASO B: Lista vacía [] -> Mega Reporte Global (ID 0)
-        # =================================================================
-        else:
-            videos = (
-                db.query(models.Video).filter(models.Video.estado == "procesado").all()
-            )
-            if not videos:
-                raise HTTPException(status_code=400, detail="No hay videos procesados.")
-
-            ids_str = ",".join(str(v.id) for v in videos)
-            query_global = text(f"""
-                WITH clusters AS (
-                    SELECT tipo_dano, confianza,
-                           ST_ClusterDBSCAN(geom, 0.00005, 1) OVER(PARTITION BY tipo_dano) as cluster_id
-                    FROM deteccion WHERE video_id IN ({ids_str})
-                )
-                SELECT MAX(confianza) as conf_max FROM clusters GROUP BY tipo_dano, cluster_id
-            """)
-            baches_globales = db.execute(query_global).fetchall()
-
-            cantidad_baches = len(baches_globales)
-            confianza_promedio = (
-                sum(r.conf_max for r in baches_globales) / cantidad_baches
-                if cantidad_baches > 0
-                else 0
-            )
-            # -------------------------------------------------------------
-
-            prompt = f"""Sos un inspector vial municipal de Moreno. Redactá un informe ejecutivo breve y formal en español.
-
-            Datos de la inspección global del municipio:
-            - Cantidad de videos analizados: {len(videos)}
-            - Cantidad total de baches reales detectados en las calles: {cantidad_baches}
-            - Confianza promedio de la IA: {confianza_promedio:.0%}
-
-            El informe debe tener 3 párrafos exactos:
-            1. Resumen ejecutivo.
-            2. Análisis del estado vial global.
-            3. Recomendación de acción prioritaria municipal.
-            Sé conciso."""
-
-            logger.info("Pidiendo reporte global a Ollama...")
-            response = httpx.post(
-                f"{OLLAMA_URL}/api/generate",
-                json={"model": "llama3.2:3b", "prompt": prompt, "stream": False},
-                timeout=120.0,
-            )
-            response.raise_for_status()
-            contenido_reporte = response.json().get("response")
-
-            reporte_db = (
-                db.query(models.Reporte).filter(models.Reporte.video_id == 0).first()
-            )
-            if reporte_db:
-                reporte_db.contenido = contenido_reporte
-                reporte_db.fecha_generacion = datetime.utcnow()
-            else:
-                nuevo_reporte = models.Reporte(
-                    video_id=None, contenido=contenido_reporte
-                )
-                db.add(nuevo_reporte)
-
-            db.commit()
-            return {
-                "mensaje": "Reporte global generado y guardado",
-                "tipo": "global",
-                "reporte": contenido_reporte,
-            }
+        return {
+            "mensaje": "Reporte generado y vinculado correctamente.",
+            "reporte_id": nuevo_reporte.id,
+            "videos_incluidos": ids_v,
+            "contenido": contenido_reporte,
+        }
 
     except Exception as e:
+        db.rollback()
         logger.error(f"Error generando reporte: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/v1/reporte/{video_id}", tags=["Inteligencia Artificial"])
 def obtener_reporte(video_id: int, db: Session = Depends(get_db)):
-    # Si el usuario pide el 0, buscamos el reporte que tiene video_id nulo (Global)
+    """
+    Busca el reporte más reciente asociado a un video específico.
+    Si se pide el ID 0, se busca el último reporte que NO esté asociado a un solo video (o el más global).
+    """
     if video_id == 0:
+        # Buscar el último reporte generado
         reporte = (
-            db.query(models.Reporte).filter(models.Reporte.video_id is None).first()
+            db.query(models.Reporte)
+            .order_by(models.Reporte.fecha_generacion.desc())
+            .first()
         )
     else:
+        # Buscar reportes asociados a este video a través de la tabla intermedia
         reporte = (
-            db.query(models.Reporte).filter(models.Reporte.video_id == video_id).first()
+            db.query(models.Reporte)
+            .join(models.ReporteVideo)
+            .filter(models.ReporteVideo.video_id == video_id)
+            .order_by(models.Reporte.fecha_generacion.desc())
+            .first()
         )
 
     if not reporte:
         raise HTTPException(
             status_code=404,
-            detail=f"No hay reporte para el ID {video_id}. Si buscás el total, usá ID 0.",
+            detail=f"No se encontró ningún reporte para el video ID {video_id}.",
         )
 
     return {
-        "tipo": "Global" if video_id == 0 else "Individual",
-        "video_id": video_id,
+        "reporte_id": reporte.id,
         "contenido": reporte.contenido,
         "fecha": reporte.fecha_generacion,
     }
+
+
+# REPORTE ENTERO
 
 
 @app.patch("/api/v1/detecciones/{deteccion_id}", status_code=status.HTTP_200_OK)

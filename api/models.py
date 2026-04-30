@@ -30,6 +30,12 @@ class Deteccion(Base):
 class Reporte(Base):
     __tablename__ = "reporte"
     id = Column(Integer, primary_key=True)
-    video_id = Column(Integer, ForeignKey("video.id"), nullable=True, unique=True)
     contenido = Column(String)
     fecha_generacion = Column(DateTime, default=datetime.utcnow)
+
+
+class ReporteVideo(Base):
+    __tablename__ = "reporte_video"
+    id = Column(Integer, primary_key=True)
+    video_id = Column(Integer, ForeignKey("video.id"), nullable=True)
+    reporte_id = Column(Integer, ForeignKey("reporte.id"), nullable=True)
