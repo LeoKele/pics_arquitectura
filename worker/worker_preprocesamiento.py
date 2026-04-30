@@ -81,78 +81,66 @@ while True:
 
             # 1. DESCARGAR VIDEO CRUDO
             ruta_original = f"/tmp/crudo_{video_id}.mp4"
-            ruta_procesada = f"/tmp/procesado_{video_id}.mp4"
             logger.info(f"Descargando {video.nombre_archivo} desde MinIO...")
             minio_client.fget_object(BUCKET_NAME, video.nombre_archivo, ruta_original)
 
             # 2. CONFIGURAR OPENCV
             cap = cv2.VideoCapture(ruta_original)
-            fps_original = int(cap.get(cv2.CAP_PROP_FPS))
-            ancho = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            alto = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-
-            # Vamos a recortar el 30% superior (el cielo/árboles no tienen baches)
-            corte_superior = int(alto * 0.3)
-            nuevo_alto = alto - corte_superior
-
-            # Preparar el "escritor" del nuevo video
-            fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-            out = cv2.VideoWriter(ruta_procesada, fourcc, 5.0, (ancho, alto))
             frame_count = 0
             frames_guardados = 0
 
-            logger.info("Aplicando filtros de IA clásica (Recorte, Blur, Brillo)...")
+            # Asegurarnos de que el bucket exista
+            if not minio_client.bucket_exists("frames-procesados"):
+                minio_client.make_bucket("frames-procesados")
 
+            logger.info("Extrayendo frames y enviando a MinIO...")
             while cap.isOpened():
                 ret, frame = cap.read()
                 if not ret:
                     break
 
                 frame_count += 1
-
-                # REGLA 1: Reducción de FPS (Tomamos 1 de cada 6 frames aprox)
-                if frame_count % 6 != 0:
+                if frame_count % 6 != 0:  # Tomamos 1 de cada 6 frames
                     continue
 
-                # REGLA 2: Recortar el cielo (Crop)
+                # Acá irían tus filtros si los descomentás:
                 # frame_recortado = frame[corte_superior:alto, 0:ancho]
-                frame_recortado = frame
+                # if es_imagen_borrosa(frame_recortado): continue
 
-                # REGLA 3: Filtro de Calidad (Descartar basura)
-                # if es_imagen_oscura(frame_recortado):
-                #    continue # Muy oscuro, lo tiramos
+                # 1. Obtener el milisegundo exacto
+                tiempo_ms = int(cap.get(cv2.CAP_PROP_POS_MSEC))
 
-                # if es_imagen_borrosa(frame_recortado):
-                #    continue # Movido/borroso por salto del camión, lo tiramos
+                # 2. Guardar imagen temporalmente
+                nombre_frame = f"frame_{tiempo_ms}.jpg"
+                ruta_local = f"/tmp/{nombre_frame}"
+                cv2.imwrite(
+                    ruta_local, frame
+                )  # Usar frame_recortado si aplicás filtros
 
-                # Todas esas lineas estan comentadas porque recortaba mucho las imagenes y no predecia casi nada. Hay q ver con el modelo nuevo.
-                out.write(frame_recortado)
+                # 3. Subir el frame a MinIO
+                minio_client.fput_object(
+                    "frames-procesados",
+                    f"video_{video_id}/{nombre_frame}",
+                    ruta_local,
+                    content_type="image/jpeg",
+                )
+                os.remove(ruta_local)  # Limpiamos
                 frames_guardados += 1
 
             cap.release()
-            out.release()
 
             logger.info(
                 f"Limpieza terminada. De {frame_count} frames originales, quedaron {frames_guardados} frames perfectos."
             )
 
-            # 3. SUBIR EL NUEVO VIDEO Y ACTUALIZAR BD
-            nuevo_nombre_minio = f"procesado_{video.nombre_archivo}"
-            minio_client.fput_object(BUCKET_NAME, nuevo_nombre_minio, ruta_procesada)
-
-            # Le cambiamos el nombre en la BD. Así el Worker de YOLO descarga el liviano directamente.
-            video.nombre_archivo = nuevo_nombre_minio
-            db.commit()
-
-            # 4. PASAR EL TESTIGO A YOLO
+            # 3. PASAR EL TESTIGO A YOLO
             r.rpush("cola_inferencia", video_id)
             logger.info(
                 f"Video {video_id} enviado a Inferencia. Limpiando archivos temporales..."
             )
 
-            # Limpiar el contenedor
+            # Limpiar el contenedor local (ya no guardamos el video entero procesado)
             os.remove(ruta_original)
-            os.remove(ruta_procesada)
 
         except Exception as e:
             db.rollback()
