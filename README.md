@@ -13,6 +13,19 @@ El proyecto utiliza Docker Compose para orquestar los siguientes servicios:
 - **Modelo Ollama**: Ejecuta el modelo de lenguaje "llama3.2:3b" de forma local para analizar las detecciones y redactar informes ejecutivos.
 - **Observabilidad (Loki + Promtail + Grafana):** Promtail recolecta los logs estructurados de los containers de Docker, Loki los centraliza y Grafana proporciona dashboards interactivos para monitorear el estado y los errores del sistema.
 
+## Estructura del Proyecto (API)
+
+El backend se organiza de la siguiente manera para mejorar la escalabilidad:
+
+- **api/configs/**: Centraliza las variables de entorno y configuraciones globales (`config.py`).
+- **api/routers/**: Contiene los módulos de la API divididos por funcionalidad:
+    - `video.py`: Gestión de subida y estado de videos.
+    - `deteccion.py`: Consulta y auditoría de detecciones viales.
+    - `reporte.py`: Generación de informes con IA (Ollama).
+    - `sistema.py`: Health check e inventario de infraestructura.
+- **api/dependencias.py**: Inicializa y exporta los clientes de servicios externos (Redis, MinIO) para evitar dependencias circulares.
+- **api/main.py**: Punto de entrada principal que inicializa la base de datos y registra los routers.
+
 ## Desarrollo y calidad
 
 - **Pre-Commit:** Funciona como un pipeline de validacion automatica antes de cada commit en Git. Utiliza herramientas de formateo (Black), orden de dependencias (Isort), linting (Flake8) y escaneo de credenciales (detect-secrets) para asegurar que el codigo sea seguro, limpio y estandarizado.
