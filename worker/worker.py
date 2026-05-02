@@ -209,6 +209,27 @@ while True:
             if os.path.exists(ruta_json_local):
                 os.remove(ruta_json_local)
 
+            # --- LIMPIEZA DE MINIO ---
+            try:
+                # Borrado de frames procesados (ya no se necesitan tras la inferencia)
+                logger.info(f"Limpiando frames procesados del video {video_id}...")
+                objetos_a_borrar = minio_client.list_objects(
+                    "frames-procesados", prefix=f"video_{video_id}/", recursive=True
+                )
+                for obj in objetos_a_borrar:
+                    minio_client.remove_object("frames-procesados", obj.object_name)
+                logger.info(f"Frames del video {video_id} eliminados de MinIO.")
+
+                # Borrado de archivos crudos (podrian necesitarse, o no...)
+
+                # logger.info(f"Limpiando archivos crudos del video {video_id}...")
+                # minio_client.remove_object(BUCKET_NAME, video.nombre_archivo)
+                # minio_client.remove_object(BUCKET_NAME, nombre_json)
+                # logger.info("Archivos crudos (video y json) eliminados de MinIO.")
+
+            except Exception as cleanup_error:
+                logger.error(f"Error durante la limpieza de MinIO: {cleanup_error}")
+
             video.estado = "procesado"
             db.commit()
             logger.info(
