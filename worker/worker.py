@@ -135,16 +135,29 @@ while True:
                 minio_client.make_bucket("detecciones")
 
             logger.info(f"Buscando frames del video {video_id} en MinIO...")
-            objetos_frames = minio_client.list_objects(
-                "frames-procesados", prefix=f"video_{video_id}/", recursive=True
+            objetos_frames = list(
+                minio_client.list_objects(
+                    "frames-procesados", prefix=f"video_{video_id}/", recursive=True
+                )
             )
 
+            # --- ORDENAR FRAMES CRONOLÓGICAMENTE ---
+            def extraer_tiempo(obj):
+                try:
+                    return int(obj.object_name.split("_")[-1].split(".")[0])
+                except ValueError:
+                    return 0
+
+            objetos_frames.sort(key=extraer_tiempo)
+            # ----------------------------------------------
+
             baches_detectados = 0
+            ids_procesados = set()  # Memoria de baches ya guardados
 
             for obj in objetos_frames:
                 nombre_archivo_minio = obj.object_name
 
-                # Extraer el milisegundo del nombre del archivo (ej: "video_10/frame_12500.jpg" -> 12500)
+                # Extraer el milisegundo del nombre del archivo
                 try:
                     tiempo_ms = int(nombre_archivo_minio.split("_")[-1].split(".")[0])
                 except ValueError:
@@ -158,17 +171,29 @@ while True:
 
                 # Inferencia con YOLO
                 frame = cv2.imread(ruta_local_frame)
-                resultados = modelo_yolo(frame, verbose=False)[0]
+                resultados = modelo_yolo.track(
+                    frame, persist=True, tracker="bytetrack.yaml", verbose=False
+                )[0]
 
-                for box in resultados.boxes:
+                # Extraemos los IDs que le asignó ByteTrack a cada caja
+                if resultados.boxes.id is not None:
+                    track_ids = resultados.boxes.id.int().cpu().tolist()
+                else:
+                    track_ids = [None] * len(resultados.boxes)
+
+                for box, track_id in zip(resultados.boxes, track_ids):
                     confianza = float(box.conf[0])
                     clase_id = int(box.cls[0])
                     nombre_clase = modelo_yolo.names[clase_id]
 
-                    if confianza > 0.10:  # Ajustá tu umbral a gusto (0.10, 0.20...)
+                    if confianza > 0.10:
+                        # --- VERIFICACIÓN DE DUPLICADOS ---
+                        if track_id is not None:
+                            if track_id in ids_procesados:
+                                continue  # Ya guardamos este daño en un frame anterior, lo ignoramos
+                            ids_procesados.add(track_id)
                         baches_detectados += 1
 
-                        # --- MAGIA: DIBUJAR EL RECUADRO ---
                         frame_con_caja = resultados.plot()
 
                         # Guardar imagen con el recuadro a nivel local
@@ -211,7 +236,7 @@ while True:
 
             # --- LIMPIEZA DE MINIO ---
             try:
-                # Borrado de frames procesados (ya no se necesitan tras la inferencia)
+                # Borrado de frames procesados
                 logger.info(f"Limpiando frames procesados del video {video_id}...")
                 objetos_a_borrar = minio_client.list_objects(
                     "frames-procesados", prefix=f"video_{video_id}/", recursive=True
@@ -220,12 +245,12 @@ while True:
                     minio_client.remove_object("frames-procesados", obj.object_name)
                 logger.info(f"Frames del video {video_id} eliminados de MinIO.")
 
-                # Borrado de archivos crudos (podrian necesitarse, o no...)
+                # Borrado de archivos crudos
 
-                # logger.info(f"Limpiando archivos crudos del video {video_id}...")
-                # minio_client.remove_object(BUCKET_NAME, video.nombre_archivo)
-                # minio_client.remove_object(BUCKET_NAME, nombre_json)
-                # logger.info("Archivos crudos (video y json) eliminados de MinIO.")
+                logger.info(f"Limpiando archivos crudos del video {video_id}...")
+                minio_client.remove_object(BUCKET_NAME, video.nombre_archivo)
+                minio_client.remove_object(BUCKET_NAME, nombre_json)
+                logger.info("Archivos crudos (video y json) eliminados de MinIO.")
 
             except Exception as cleanup_error:
                 logger.error(f"Error durante la limpieza de MinIO: {cleanup_error}")

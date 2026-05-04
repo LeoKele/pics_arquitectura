@@ -89,6 +89,9 @@ while True:
             frame_count = 0
             frames_guardados = 0
 
+            # --- Variable para memoria del filtro ---
+            frame_anterior_gris = None
+
             # Asegurarnos de que el bucket exista
             if not minio_client.bucket_exists("frames-procesados"):
                 minio_client.make_bucket("frames-procesados")
@@ -103,9 +106,20 @@ while True:
                 if frame_count % 6 != 0:  # Tomamos 1 de cada 6 frames
                     continue
 
-                # Acá irían tus filtros si los descomentás:
-                # frame_recortado = frame[corte_superior:alto, 0:ancho]
-                # if es_imagen_borrosa(frame_recortado): continue
+                # --- FILTRO DE MOVIMIENTO ESTRUCTURAL ---
+                gris_actual = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                if frame_anterior_gris is not None:
+                    # Comparamos la diferencia absoluta entre frames
+                    diff = cv2.absdiff(frame_anterior_gris, gris_actual)
+                    # Binarizamos para contar píxeles que cambiaron drásticamente
+                    _, thresh = cv2.threshold(diff, 25, 255, cv2.THRESH_BINARY)
+                    porcentaje_cambio = (np.count_nonzero(thresh) / thresh.size) * 100
+
+                    # Si cambió menos del 2% de la imagen, el auto está quieto
+                    if porcentaje_cambio < 2.0:
+                        continue  # Evitamos subir el frame duplicado
+
+                frame_anterior_gris = gris_actual
 
                 # 1. Obtener el milisegundo exacto
                 tiempo_ms = int(cap.get(cv2.CAP_PROP_POS_MSEC))
