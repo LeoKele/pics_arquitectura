@@ -124,4 +124,12 @@ El sistema utiliza **llama3.2:3b** ejecutándose localmente. Esto garantiza la p
   - **URL**: `http://localhost:3000/`
   - **Consulta de ejemplo**: `{job="docker"} |= "api"` (Muestra logs que contienen la palabra "api").
 
+### Validaciones durante el procesamiento
+   1. Rotación automática: Corrección de videos verticales a horizontales.
+   2. Duplicación de frames: Un solo registro por bache real, usando umbrales dinámicos (D40: 3m, D20: 10m,
+      calle_tierra: 30m).
+   3. Lógica de Mejor Frame: Si encuentra el mismo bache, actualiza la base de datos y la foto solo si el nuevo frame
+      tiene mayor confianza.
+   4. Filtro de Horizonte: Eliminación de árboles y objetos aéreos.
+
 ---

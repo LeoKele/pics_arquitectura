@@ -152,16 +152,25 @@ while True:
             # ----------------------------------------------
 
             baches_detectados = 0
-            ids_procesados = set()  # Memoria de baches ya guardados
+            ids_procesados = set()  # Memoria de baches ya guardados en este video
 
-            for obj in objetos_frames:
+            total_frames = len(objetos_frames)
+            logger.info(f"Procesando {total_frames} frames...")
+
+            for i, obj in enumerate(objetos_frames):
                 nombre_archivo_minio = obj.object_name
+
+                # Log de progreso cada 5 frames
+                if i % 5 == 0:
+                    logger.info(
+                        f"Progreso: Frame {i}/{total_frames} ({obj.object_name})"
+                    )
 
                 # Extraer el milisegundo del nombre del archivo
                 try:
                     tiempo_ms = int(nombre_archivo_minio.split("_")[-1].split(".")[0])
                 except ValueError:
-                    continue  # Evitar crasheos si hay archivos con otros nombres
+                    continue
 
                 # Descargar frame temporalmente
                 ruta_local_frame = f"/tmp/frame_{tiempo_ms}.jpg"
@@ -186,13 +195,89 @@ while True:
                     clase_id = int(box.cls[0])
                     nombre_clase = modelo_yolo.names[clase_id]
 
-                    if confianza > 0.10:
-                        # --- VERIFICACIÓN DE DUPLICADOS ---
-                        if track_id is not None:
-                            if track_id in ids_procesados:
-                                continue  # Ya guardamos este daño en un frame anterior, lo ignoramos
-                            ids_procesados.add(track_id)
+                    if confianza > 0.30:
+                        # --- 0. FILTRO DE HORIZONTE (50%) ---
+                        # Evitar detectar árboles, cables o cielo como baches.
+                        # El bache debe estar en la carretera (parte inferior).
+                        y_centro = float(box.xywh[0][1])
+                        alto_imagen = frame.shape[0]
+                        if y_centro < (alto_imagen * 0.50):
+                            logger.info(
+                                f"Omitiendo {nombre_clase} por estar en el horizonte (posible árbol/cielo)"
+                            )
+                            continue
+
+                        # Log descriptivo del ID (visual tracking ID)
+                        id_log = (
+                            f"ID:{track_id}" if track_id is not None else "ID:NUEVO"
+                        )
+
+                        # --- 2. VERIFICACIÓN GEOGRÁFICA (Deduplicación y Mejora) ---
+                        lat, lng = obtener_coordenada(datos_gps, tiempo_ms)
+                        punto_wkt = f"SRID=4326;POINT({lng} {lat})"
+
+                        # Definir umbral de distancia dinámico (en grados aproximados)
+                        # 0.00001 ~= 1.1 metros
+                        distancias_map = {
+                            "d40": 0.00003,  # Bache/Pozo (3m)
+                            "d20": 0.00010,  # Piel de cocodrilo/Grietas (10m)
+                            "calle_tierra": 0.00030,  # Calle de tierra (30m)
+                        }
+                        # Buscamos el umbral según la clase, por defecto 3m
+                        umbral = distancias_map.get(nombre_clase.lower(), 0.00003)
+
+                        # Buscamos si ya existe una detección del MISMO TIPO a la distancia definida
+                        duplicado = (
+                            db.query(Deteccion)
+                            .filter(
+                                Deteccion.video_id == video_id,
+                                Deteccion.tipo_dano == nombre_clase,
+                                Deteccion.geom.ST_DWithin(punto_wkt, umbral),
+                            )
+                            .first()
+                        )
+
+                        if duplicado:
+                            # LÓGICA DE MEJOR CALIDAD:
+                            if confianza > duplicado.confianza:
+                                logger.info(
+                                    f"Actualizando {nombre_clase} ({id_log}) con mejor confianza: {duplicado.confianza:.2f} -> {confianza:.2f}"
+                                )
+
+                                # 1. Generar nueva imagen con caja
+                                frame_con_caja = resultados.plot()
+                                nombre_det = f"bache_{tiempo_ms}.jpg"
+                                ruta_det_local = f"/tmp/{nombre_det}"
+                                cv2.imwrite(ruta_det_local, frame_con_caja)
+
+                                # 2. Subir y reemplazar en MinIO
+                                ruta_minio_deteccion = f"video_{video_id}/{nombre_det}"
+                                minio_client.fput_object(
+                                    "detecciones",
+                                    ruta_minio_deteccion,
+                                    ruta_det_local,
+                                    content_type="image/jpeg",
+                                )
+
+                                # 3. Actualizar registro en BD
+                                duplicado.confianza = confianza
+                                duplicado.frame_minio_path = ruta_minio_deteccion
+                                # Actualizamos la geometría también para tener la mejor posición
+                                duplicado.geom = from_shape(Point(lng, lat), srid=4326)
+                                db.commit()
+
+                                os.remove(ruta_det_local)
+                            else:
+                                # Ya tenemos una mejor captura de este bache, ignoramos esta
+                                continue
+
+                            continue  # Pasamos a la siguiente caja
+
+                        # Si pasó el filtro de duplicados, lo guardamos como NUEVO
                         baches_detectados += 1
+                        logger.info(
+                            f"NUEVO bache detectado: {nombre_clase} ({id_log}, Conf: {confianza:.2f})"
+                        )
 
                         frame_con_caja = resultados.plot()
 
@@ -210,20 +295,17 @@ while True:
                             content_type="image/jpeg",
                         )
 
-                        # Sincronizar GPS
-                        lat, lng = obtener_coordenada(datos_gps, tiempo_ms)
-                        punto_real = Point(lng, lat)
-
                         # Guardar en Base de Datos
                         nueva_deteccion = Deteccion(
                             video_id=video_id,
-                            geom=from_shape(punto_real, srid=4326),
+                            geom=from_shape(Point(lng, lat), srid=4326),
                             tipo_dano=nombre_clase,
                             confianza=confianza,
-                            frame_minio_path=ruta_minio_deteccion,  # Ruta exacta para FastAPI
+                            frame_minio_path=ruta_minio_deteccion,
                             estado_auditoria="pendiente",
                         )
                         db.add(nueva_deteccion)
+                        db.commit()  # Commit para que esté disponible para el siguiente frame (evita duplicados si el tracker falla)
 
                         # Limpiar la imagen del bache de tmp
                         os.remove(ruta_det_local)
