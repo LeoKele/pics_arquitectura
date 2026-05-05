@@ -5,132 +5,123 @@ Este repositorio contiene la arquitectura backend en contenedores para el Proyec
 ## Arquitectura del Sistema
 
 El proyecto utiliza Docker Compose para orquestar los siguientes servicios:
+
 - **API (FastAPI)**: Expone los endpoints RESTful para la carga de datos y consulta de resultados.
-- **Worker (Python)**: Proceso en segundo plano que consume tareas de la cola y simula la inferencia del modelo YOLO.
+- **Worker Preprocesamiento (Python)**: Extrae frames de los videos y sincroniza la metadata GPS.
+- **Worker Inferencia (Python)**: Consume tareas de la cola y ejecuta el modelo YOLO para detectar daños.
 - **Base de Datos (PostgreSQL + PostGIS)**: Almacena el estado de los videos y las coordenadas geográficas de las detecciones.
-- **Cola de Mensajes (Redis)**: Gestiona la cola de tareas asíncronas entre la API y el Worker.
-- **Almacenamiento de Objetos (MinIO)**: Guarda los archivos crudos (`.mp4` y `.json` de metadata).
-- **Modelo Ollama**: Ejecuta el modelo de lenguaje "llama3.2:3b" de forma local para analizar las detecciones y redactar informes ejecutivos.
-- **Observabilidad (Loki + Promtail + Grafana):** Promtail recolecta los logs estructurados de los containers de Docker, Loki los centraliza y Grafana proporciona dashboards interactivos para monitorear el estado y los errores del sistema.
+- **Cola de Mensajes (Redis)**: Gestiona la comunicación asíncrona entre la API y los Workers.
+- **Almacenamiento de Objetos (MinIO)**: Guarda archivos crudos (`.mp4`, `.json`) y las capturas de las detecciones.
+- **Modelo Ollama**: Ejecuta el modelo de lenguaje "llama3.2:3b" localmente para generar informes ejecutivos.
+- **Observabilidad (Loki + Promtail + Grafana)**: Centralización de logs y monitoreo en tiempo real.
 
-## Estructura del Proyecto (API)
+## Estructura del Repositorio
 
-El backend se organiza de la siguiente manera para mejorar la escalabilidad:
+El código se organiza de la siguiente manera:
 
-- **api/configs/**: Centraliza las variables de entorno y configuraciones globales (`config.py`).
-- **api/routers/**: Contiene los módulos de la API divididos por funcionalidad:
-    - `video.py`: Gestión de subida y estado de videos.
-    - `deteccion.py`: Consulta y auditoría de detecciones viales.
-    - `reporte.py`: Generación de informes con IA (Ollama).
-    - `sistema.py`: Health check e inventario de infraestructura.
-- **api/dependencias.py**: Inicializa y exporta los clientes de servicios externos (Redis, MinIO) para evitar dependencias circulares.
-- **api/main.py**: Punto de entrada principal que inicializa la base de datos y registra los routers.
+- **api/**: Núcleo de la API FastAPI.
+    - `configs/`: Variables de entorno y configuraciones globales.
+    - `routers/`: Endpoints divididos por dominio (`video.py`, `deteccion.py`, `reporte.py`, `sistema.py`).
+    - `models.py` & `schemas.py`: Definición de tablas de base de datos y validación de datos (Pydantic).
+    - `dependencias.py`: Conexiones a servicios externos (Redis, MinIO).
+- **worker/**: Lógica de procesamiento en segundo plano.
+    - `worker_preprocesamiento.py`: Lógica de extracción de frames y sincronización GPS.
+    - `worker.py`: Orquestador de la inferencia con el modelo YOLO.
+    - `best.pt`: Pesos del modelo YOLO entrenado para detección de daños.
+- **observabilidad/**: Archivos de configuración para el stack de monitoreo (Promtail).
+- **docker-compose.yml**: Definición de toda la infraestructura como código.
 
-## Desarrollo y calidad
-
-- **Pre-Commit:** Funciona como un pipeline de validacion automatica antes de cada commit en Git. Utiliza herramientas de formateo (Black), orden de dependencias (Isort), linting (Flake8) y escaneo de credenciales (detect-secrets) para asegurar que el codigo sea seguro, limpio y estandarizado.
+---
 
 ## Cómo levantar el entorno
 
-Para ejecutar este proyecto en una carpeta limpia, asegúrate de tener instalado [Docker](https://www.docker.com/) y `docker-compose`.
+### 1. Requisitos previos
+Asegúrate de tener instalado [Docker](https://www.docker.com/) y `docker-compose`.
 
-1. **Configurar variables de entorno:**
-   Copia el archivo de ejemplo para crear tu propio .env local.
-   ```bash
-   cp .env.example .env
+### 2. Configurar variables de entorno
+Copia el archivo de ejemplo y completa los valores necesarios en tu nuevo `.env`:
+```bash
+cp .env.example .env
+```
 
-2. **Configurar Pre-Commit**
-   En caso de no haber ejecutado nunca pre-commit correr en la terminal:
+### 3. Configurar Pre-Commit (Opcional - Para desarrollo)
+Para asegurar la calidad del código, instalá las herramientas de validación:
+```bash
+pip install pre-commit detect-secrets
+detect-secrets scan > .secrets.baseline
+pre-commit install
+```
 
-   !Es importante tener la carpeta vinculada a un repositorio de Github!
-   ```bash
-   pip install pre-commit detect-secrets
-   detect-secrets scan > .secrets.baseline
-   pre-commit install
+### 4. Levantar la infraestructura
+Ejecutá el siguiente comando para construir las imágenes y levantar los contenedores:
+```bash
+docker-compose up --build -d
+```
 
+### 5. Descargar el modelo de IA (Ollama)
+La primera vez que levantes el proyecto, debés descargar el modelo (aprox. 2GB):
+```bash
+docker exec -it pics_proyecto-ollama-1 ollama run llama3.2:3b
+```
+> **Nota**: Si el nombre del contenedor varía, verificalo con `docker ps`.
 
-3. **Levantar los contenedores:**
-   Ejecuta el siguiente comando para construir las imágenes y levantar toda la infraestructura:
-   ```bash
-   docker-compose up --build -d
-
-4. **Descargar el modelo de IA (Ollama)**
-
-   Para poder generar los reportes correctamente, necesitas descargar el modelo de lenguaje en el contenedor de Ollama (esto se hace solo la primera vez y pesa aprox. 2GB).
-   Con los contenedores ya corriendo, ejecuta en tu terminal:
-
-
-   ``docker exec -it pics_arquitectura-main-ollama-1 ollama run llama3.2:3b``
-   (Nota: Si el comando falla porque no encuentra el contenedor, revisa el nombre exacto ejecutando docker ps y buscando el contenedor de Ollama).
-
-
-
-## Contexto de analisis
-
-- **Pre-Commit:** Su proposito es evitar que se suba codigo roto, inseguro o desprolijo de formato. Sirve para corregir espacios en blanco, organizar imports, evitar subida de contraseñas por error, entre otras. Este Pre-Commit frena el push antes de que ocurra.
-
-   **Estilo uniforme (Black):** Si se escribe una sola linea larga, Black la formatea automaticamente para que quede prolija y legible
-
-   **Ordena importanciones (isort):** Agrupa los import alfabéticamente y por tipos.
-
-   **Buscar errores (flake8):** Lee el código buscando variables definidas sin usar o lineas muy largas.
-
-   **Errores de seguridad (detect-secrets):** Ayuda a que no se permita hacer un commit de .env el cual contiene las credenciales para la base de datos, minIO y Grafana.
-
-   **Limpieza básica:** Elimina espacios en blanco inncesarios al final de las lineas.
-
-
-   Cuando se hagamos un commit, se ejecutará automáticamente. Pero hay una forma de correrlo manual si queremos verlo antes de hacer Commit, en la terminal ejecutar: "pre-commit run --all-files"
-
-
-- **Modelo IA (Ollama):** Esta herramienta permite descargar un modelo de lenguaje (IA) y ejecutarlo directamente sin depender de enviar los datos a traves de internet a los servidores de una empresa como OpenAI.
-
-Todo se procesa de forma local, no salen de la infraestructura. Funciona de manera offline.
-
-Ollama se encuentra aislado en un container en Docker. Adentro posee el modelo "llama3.2:3b" (Version optimizada y liviana de Meta AI). Cuando se pide generar un reporte hace lo siguiente:
-   1. FastAPI recopila los datos crudos de la bd
-   2. FastAPI arma un prompt y se lo envia a Ollama (puerto 11434)
-   3. Ollama lee los datos, redacta el parrafo de informe y se lo devuelve a FastAPI
-   4. FastAPI guarda ese texto en PostreSQL.
-
-
-
-- **Loki + Promtail + Grafana**
-"http://localhost:3000/"
-**Promtail** Funciona como un recolector que levanta todos los textos y errores de Dcoker. Los etiqueta y los envia
-
-**Loki** Recibe los logs de Promtail y los guarda de forma optimizada. Solo indexa las etiquetas.
-
-**Grafana** Es la interfaz grafica. Se conecta a Loki y te permite ver todos los logs en tiempo real, armar gráficos, filtrar por errores, entre otros.
-Ejemplo Grafana para visualizar: '{job="docker"} |= "api" '
-Esto mostrara lo logs de la palabra "api", se puede hacer lo mismo con "worker" y demas.
+---
 
 ## Ejemplo de uso (Paso a paso)
 
-Para comprobar que todo el sistema está funcionando correctamente, podés seguir este flujo de prueba:
+Para testear el estado actual del sistema y el flujo del modelo, seguí estos pasos:
 
-1. **Carga de archivos:**
-   - Entrá a la documentación interactiva en `http://localhost:8000/docs`.
-   - Buscá el endpoint `POST /api/v1/videos`.
-   - Hacé clic en "Try it out" y subí un archivo de video (`.mp4` o `.webm`) y un archivo `.json` de metadata.
-   - Al ejecutar, la API te devolverá un `video_id` (por ejemplo: `1`).
+### 1. Carga de video y metadata
+- Entrá a la documentación interactiva: `http://localhost:8000/docs`.
+- Buscá el endpoint `POST /api/v1/videos`.
+- Hacé clic en **"Try it out"**.
+- Subí un archivo de video (`.mp4`) y su correspondiente `.json` de metadata (puedes encontrar un ejemplo para descargar [aquí](https://drive.google.com/drive/folders/1t2k5_rADlHczpZWwmvewc2pNdZBFs21v?usp=sharing) ).
+- Al ejecutar, recibirás un `video_id`.
 
-2. **Verificación en MinIO:**
-   - Accedé al panel de MinIO en `http://localhost:9001`.
-   - Logueate con las credenciales de tu `.env` (`MINIO_ROOT_USER` y `MINIO_ROOT_PASSWORD`).
-   - En el bucket `videos-crudos` deberías ver los archivos subidos.
+### 2. Flujo de Procesamiento
+Una vez subido el video, el sistema inicia una cadena de tareas asíncronas:
+1. **Preprocesamiento**: El `worker_preprocesamiento.py` extrae los frames del video, sincronizándolos con la metadata GPS. Filtra frames duplicados (si el vehículo está detenido) y los sube temporalmente a un bucket en MinIO.
+2. **Inferencia**: Al finalizar, envía una señal al `worker.py`. Este descarga los frames, los procesa con el modelo **YOLO**, inserta las detecciones en la base de datos y guarda las capturas con las *bounding boxes* en el bucket final de `detecciones`.
+3. **Limpieza**: Una vez procesado con éxito, el sistema elimina automáticamente el video original, su JSON de metadata y los frames temporales para optimizar el almacenamiento, dejando solo los resultados finales.
 
-3. **Procesamiento del Worker:**
-   - El `worker.py` detectará automáticamente la nueva tarea en la cola de Redis.
-   - Simulará el procesamiento (espera unos segundos) y guardará una detección de prueba en Moreno.
-   - Podrás ver en los logs (o vía API) que el estado del video cambia a `procesado`.
+### 3. Verificación de resultados
+- **MinIO**: Accedé a `http://localhost:9001` (User/Pass en tu `.env`). Verificá el bucket `detecciones` para ver las imágenes procesadas.
+- **Base de Datos**: Podés usar DBeaver o pgAdmin en el puerto `5433` para auditar las tablas `video` y `deteccion`.
 
-4. **Generar Reporte con IA:**
-   - Con el `video_id` obtenido, volvé a `http://localhost:8000/docs`.
-   - Buscá el endpoint `POST /api/v1/reporte/{video_id}` e ingresá el ID.
-   - La API consultará a Ollama y te devolverá un informe ejecutivo redactado por la IA sobre las detecciones.
+### 4. Generación de Reporte con IA
+- En `http://localhost:8000/docs`, usá el endpoint `POST /api/v1/reporte/generar`.
+- Ingresá el `video_id` obtenido.
+- **Nota**: El sistema permite ingresar una lista de IDs (`[1, 2, n]`) para generar un informe consolidado de varios recorridos. Si se envía la lista vacía, la IA generará un reporte basado en **todas** las detecciones históricas del sistema.
+- Ollama analizará los datos y redactará un informe ejecutivo narrativo.
 
-5. **Verificación de Base de Datos (Opcional):**
-   - Podés conectarte a la base de datos con un cliente como **pgAdmin4** o DBeaver.
-   - **Host:** `localhost`, **Puerto:** `5433`.
-   - Podrás verificar que los registros se crearon correctamente en las tablas `video`, `deteccion` y `reporte`.
+### 5. Consulta interactiva
+- Usá el endpoint `POST /api/v1/video/{video_id}/preguntar` para hacerle preguntas específicas a la IA sobre los daños encontrados en ese recorrido.
+
+---
+
+### Calidad de Código (Pre-Commit)
+El proyecto utiliza hooks de pre-commit para mantener un estándar profesional:
+- **Black**: Formateo automático de código.
+- **isort**: Orden lógico de importaciones.
+- **flake8**: Detección de errores de sintaxis y estilo.
+- **detect-secrets**: Prevención de subida de credenciales sensibles.
+
+Para correr las validaciones manualmente:
+```bash
+pre-commit run --all-files
+```
+
+### Modelo de IA (Ollama)
+El sistema utiliza **llama3.2:3b** ejecutándose localmente. Esto garantiza la privacidad de los datos. El flujo es:
+1. La API recopila detecciones de la base de datos.
+2. Se envía un prompt estructurado a Ollama.
+3. Ollama devuelve un análisis narrativo que se guarda en PostgreSQL.
+
+### Sistema de Observabilidad
+- **Promtail**: Recolecta logs de todos los contenedores Docker.
+- **Loki**: Indexa y almacena los logs de forma eficiente.
+- **Grafana**: Interfaz visual para consultas.
+  - **URL**: `http://localhost:3000/`
+  - **Consulta de ejemplo**: `{job="docker"} |= "api"` (Muestra logs que contienen la palabra "api").
+
+---
