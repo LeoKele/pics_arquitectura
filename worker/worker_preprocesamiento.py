@@ -97,10 +97,24 @@ while True:
                 minio_client.make_bucket("frames-procesados")
 
             logger.info("Extrayendo frames y enviando a MinIO...")
+
+            # Detectar orientación del video
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            es_vertical = height > width
+            if es_vertical:
+                logger.info(
+                    f"Video vertical detectado ({width}x{height}). Se aplicará rotación automática."
+                )
+
             while cap.isOpened():
                 ret, frame = cap.read()
                 if not ret:
                     break
+
+                # --- CORRECCIÓN DE ORIENTACIÓN ---
+                if es_vertical:
+                    frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
 
                 frame_count += 1
                 if frame_count % 6 != 0:  # Tomamos 1 de cada 6 frames
