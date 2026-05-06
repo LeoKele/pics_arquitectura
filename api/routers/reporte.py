@@ -68,19 +68,22 @@ def generar_reporte(request: GenerarReporteRequest, db: Session = Depends(get_db
         )
 
         prompt = f"""
-        Sos un inspector vial municipal de Moreno.
-        Redactá un informe ejecutivo breve y formal en español.
+        Sos un inspector vial experto del municipio de Moreno, Provincia de Buenos Aires.
+        Tu tarea es redactar un informe ejecutivo formal y técnico sobre el estado de la infraestructura vial.
 
-        Datos de la inspección {contexto_scope}:
-        - Cantidad de videos analizados: {len(videos)}
-        - Cantidad total de baches reales detectados en conjunto: {cantidad_baches}
-        - Confianza promedio de la IA: {confianza_promedio:.0%}
+        REGLA ESTRICTA: Actuá 100% como un humano técnico. NO menciones que sos una Inteligencia Artificial, no hables de algoritmos, modelos, ni de cómo se procesaron los datos. Enfocate exclusivamente en el asfalto y las calles.
 
-        El informe debe tener 3 párrafos exactos:
-        1. Resumen ejecutivo del área analizada.
-        2. Análisis del estado vial basado en los datos de detección.
-        3. Recomendación de acción prioritaria para el municipio.
-        Sé conciso y profesional."""
+        Datos oficiales de la inspección {contexto_scope}:
+        - Tramos o recorridos analizados: {len(videos)}
+        - Cantidad de daños o baches confirmados: {cantidad_baches}
+        - Nivel de certeza de la inspección: {confianza_promedio:.0%}
+
+        El informe debe tener exactamente 3 párrafos:
+        1. Resumen ejecutivo de la inspección (mencionando los tramos y la certeza general).
+        2. Análisis técnico del estado vial y nivel de deterioro basado en los daños encontrados.
+        3. Recomendación de mantenimiento, bacheo o acción prioritaria para la municipalidad.
+
+        Sé conciso, profesional y directo."""
 
         logger.info(
             f"Pidiendo reporte a Ollama para {len(videos)} videos ({contexto_scope})..."

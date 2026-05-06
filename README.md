@@ -125,11 +125,15 @@ El sistema utiliza **llama3.2:3b** ejecutándose localmente. Esto garantiza la p
   - **Consulta de ejemplo**: `{job="docker"} |= "api"` (Muestra logs que contienen la palabra "api").
 
 ### Validaciones durante el procesamiento
-   1. Rotación automática: Corrección de videos verticales a horizontales.
-   2. Duplicación de frames: Un solo registro por bache real, usando umbrales dinámicos (D40: 3m, D20: 10m,
-      calle_tierra: 30m).
-   3. Lógica de Mejor Frame: Si encuentra el mismo bache, actualiza la base de datos y la foto solo si el nuevo frame
-      tiene mayor confianza.
-   4. Filtro de Horizonte: Eliminación de árboles y objetos aéreos.
 
----
+1. **Rotación Automática:** Corrección dinámica de la orientación del video (de vertical a horizontal) para estandarizar la perspectiva de los *frames* antes de que ingresen al modelo de inferencia.
+
+2. **Memoria Híbrida (Tracking Visual + Espacial):** El sistema fusiona el motor *ByteTrack* de YOLO con validaciones geoespaciales en PostGIS. Esto permite mantener la identidad de un daño continuo (ej. una calle de tierra prolongada) a medida que el vehículo avanza, evitando la fragmentación de registros y la duplicación de datos.
+
+3. **Filtro de Umbral Dinámico:** Previene la generación de múltiples registros para un mismo daño físico cuando se pierde el tracking visual. El algoritmo agrupa las detecciones utilizando umbrales de distancia geoespacial que varían según la dimensión típica de la anomalía (*D40: 3m, D20: 10m, calle_tierra: 30m*).
+
+4. **Lógica del Fotograma Óptimo y Garbage Collection:** Durante el seguimiento continuo de un daño, el sistema compara las detecciones. Si re-detecta un bache, actualiza las coordenadas en la base de datos **solo si** el nuevo fotograma presenta un mayor índice de confianza. Al hacerlo, ejecuta un proceso de limpieza que elimina automáticamente la imagen anterior de MinIO, garantizando que solo se almacene la captura de mayor calidad y optimizando el uso del disco.
+
+5. **Renderizado Aislado:** El sistema sobreescribe la función de dibujo por defecto de la IA. En lugar de renderizar todas las cajas candidatas superpuestas, aísla y dibuja exclusivamente el recuadro (*bounding box*) del daño que superó estrictamente todos los filtros geográficos y de confianza, generando un respaldo visual limpio.
+
+6. **Filtro de Horizonte (ROI):** Delimita el área de interés exclusivamente a la superficie de rodamiento, descartando automáticamente elementos irrelevantes o falsos positivos ubicados en la mitad superior de la imagen (cielo, árboles, cableado).

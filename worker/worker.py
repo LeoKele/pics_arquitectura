@@ -22,6 +22,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import declarative_base, sessionmaker
 from ultralytics import YOLO
+from ultralytics.utils.plotting import Annotator, colors  # ¡Agregá esta línea!
 
 # Logging
 logging.basicConfig(
@@ -152,6 +153,7 @@ while True:
             # ----------------------------------------------
 
             baches_detectados = 0
+            diccionario_tracks = {}  # Memoria: track_id (YOLO) -> id (PostgreSQL)
             ids_procesados = set()  # Memoria de baches ya guardados en este video
 
             total_frames = len(objetos_frames)
@@ -181,7 +183,12 @@ while True:
                 # Inferencia con YOLO
                 frame = cv2.imread(ruta_local_frame)
                 resultados = modelo_yolo.track(
-                    frame, persist=True, tracker="bytetrack.yaml", verbose=False
+                    frame,
+                    persist=True,
+                    tracker="bytetrack.yaml",
+                    conf=0.30,
+                    iou=0.4,
+                    verbose=False,
                 )[0]
 
                 # Extraemos los IDs que le asignó ByteTrack a cada caja
@@ -190,7 +197,7 @@ while True:
                 else:
                     track_ids = [None] * len(resultados.boxes)
 
-                for box, track_id in zip(resultados.boxes, track_ids):
+                for j, (box, track_id) in enumerate(zip(resultados.boxes, track_ids)):
                     confianza = float(box.conf[0])
                     clase_id = int(box.cls[0])
                     nombre_clase = modelo_yolo.names[clase_id]
@@ -226,31 +233,69 @@ while True:
                         # Buscamos el umbral según la clase, por defecto 3m
                         umbral = distancias_map.get(nombre_clase.lower(), 0.00003)
 
-                        # Buscamos si ya existe una detección del MISMO TIPO a la distancia definida
-                        duplicado = (
-                            db.query(Deteccion)
-                            .filter(
-                                Deteccion.video_id == video_id,
-                                Deteccion.tipo_dano == nombre_clase,
-                                Deteccion.geom.ST_DWithin(punto_wkt, umbral),
-                            )
-                            .first()
-                        )
+                        duplicado = None
 
+                        # A) Búsqueda por Inteligencia Artificial (Prioridad 1)
+                        if track_id is not None and track_id in diccionario_tracks:
+                            id_bd = diccionario_tracks[track_id]
+                            duplicado = (
+                                db.query(Deteccion)
+                                .filter(Deteccion.id == id_bd)
+                                .first()
+                            )
+
+                        # B) Búsqueda Geográfica (Prioridad 2)
+                        if not duplicado:
+                            duplicado = (
+                                db.query(Deteccion)
+                                .filter(
+                                    Deteccion.video_id == video_id,
+                                    Deteccion.tipo_dano == nombre_clase,
+                                    Deteccion.geom.ST_DWithin(punto_wkt, umbral),
+                                )
+                                .first()
+                            )
+
+                            # Si lo encontró por GPS, lo "atamos" a este track_id para los próximos frames
+                            if duplicado and track_id is not None:
+                                diccionario_tracks[track_id] = duplicado.id
+
+                        # --- ACTUALIZAR SI ES DUPLICADO ---
                         if duplicado:
-                            # LÓGICA DE MEJOR CALIDAD:
                             if confianza > duplicado.confianza:
                                 logger.info(
-                                    f"Actualizando {nombre_clase} ({id_log}) con mejor confianza: {duplicado.confianza:.2f} -> {confianza:.2f}"
+                                    f"Actualizando {nombre_clase} ({id_log}): {duplicado.confianza:.2f} -> {confianza:.2f}"
                                 )
 
-                                # 1. Generar nueva imagen con caja
-                                frame_con_caja = resultados.plot()
-                                nombre_det = f"bache_{tiempo_ms}.jpg"
+                                # Borrar la foto vieja de MinIO
+                                if duplicado.frame_minio_path:
+                                    try:
+                                        minio_client.remove_object(
+                                            "detecciones", duplicado.frame_minio_path
+                                        )
+                                    except Exception as e:
+                                        logger.warning(
+                                            f"No se pudo borrar foto vieja de MinIO: {e}"
+                                        )
+
+                                # Dibujar SOLO la caja actual usando OpenCV
+                                frame_con_caja = frame.copy()
+                                x1, y1, x2, y2 = map(int, box.xyxy[0])
+                                # Dibujar SOLO la caja actual usando el estilo original de YOLO
+                                frame_con_caja = frame.copy()
+                                annotator = Annotator(frame_con_caja, line_width=2)
+                                etiqueta = f"{nombre_clase} {confianza:.2f}"
+
+                                # Usamos colors(clase_id, True)
+                                annotator.box_label(
+                                    box.xyxy[0], etiqueta, color=colors(clase_id, True)
+                                )
+                                frame_con_caja = annotator.result()
+
+                                nombre_det = f"bache_{tiempo_ms}_box{j}.jpg"
                                 ruta_det_local = f"/tmp/{nombre_det}"
                                 cv2.imwrite(ruta_det_local, frame_con_caja)
 
-                                # 2. Subir y reemplazar en MinIO
                                 ruta_minio_deteccion = f"video_{video_id}/{nombre_det}"
                                 minio_client.fput_object(
                                     "detecciones",
@@ -259,34 +304,39 @@ while True:
                                     content_type="image/jpeg",
                                 )
 
-                                # 3. Actualizar registro en BD
+                                # Actualizar BD
                                 duplicado.confianza = confianza
                                 duplicado.frame_minio_path = ruta_minio_deteccion
-                                # Actualizamos la geometría también para tener la mejor posición
                                 duplicado.geom = from_shape(Point(lng, lat), srid=4326)
                                 db.commit()
 
                                 os.remove(ruta_det_local)
-                            else:
-                                # Ya tenemos una mejor captura de este bache, ignoramos esta
-                                continue
+                            continue
 
-                            continue  # Pasamos a la siguiente caja
-
-                        # Si pasó el filtro de duplicados, lo guardamos como NUEVO
+                        # --- CREAR SI ES NUEVO ---
                         baches_detectados += 1
                         logger.info(
                             f"NUEVO bache detectado: {nombre_clase} ({id_log}, Conf: {confianza:.2f})"
                         )
 
-                        frame_con_caja = resultados.plot()
+                        # Dibujar SOLO la caja actual usando OpenCV
+                        frame_con_caja = frame.copy()
+                        x1, y1, x2, y2 = map(int, box.xyxy[0])
+                        # Dibujar SOLO la caja actual usando el estilo original de YOLO
+                        frame_con_caja = frame.copy()
+                        annotator = Annotator(frame_con_caja, line_width=2)
+                        etiqueta = f"{nombre_clase} {confianza:.2f}"
 
-                        # Guardar imagen con el recuadro a nivel local
-                        nombre_det = f"bache_{tiempo_ms}.jpg"
+                        # Usamos colors(clase_id, True) para recuperar el color exacto original
+                        annotator.box_label(
+                            box.xyxy[0], etiqueta, color=colors(clase_id, True)
+                        )
+                        frame_con_caja = annotator.result()
+
+                        nombre_det = f"bache_{tiempo_ms}_box{j}.jpg"
                         ruta_det_local = f"/tmp/{nombre_det}"
                         cv2.imwrite(ruta_det_local, frame_con_caja)
 
-                        # Subir al nuevo bucket de Detecciones
                         ruta_minio_deteccion = f"video_{video_id}/{nombre_det}"
                         minio_client.fput_object(
                             "detecciones",
@@ -295,7 +345,6 @@ while True:
                             content_type="image/jpeg",
                         )
 
-                        # Guardar en Base de Datos
                         nueva_deteccion = Deteccion(
                             video_id=video_id,
                             geom=from_shape(Point(lng, lat), srid=4326),
@@ -305,12 +354,17 @@ while True:
                             estado_auditoria="pendiente",
                         )
                         db.add(nueva_deteccion)
-                        db.commit()  # Commit para que esté disponible para el siguiente frame (evita duplicados si el tracker falla)
+                        db.commit()
 
-                        # Limpiar la imagen del bache de tmp
+                        # Actualizar la base de datos para obtener el ID real (1, 2, 3...)
+                        db.refresh(nueva_deteccion)
+
+                        # Guardar la relación "ID de YOLO -> ID de Postgres"
+                        if track_id is not None:
+                            diccionario_tracks[track_id] = nueva_deteccion.id
+
                         os.remove(ruta_det_local)
 
-                # Limpiar el frame original de tmp
                 os.remove(ruta_local_frame)
 
             if os.path.exists(ruta_json_local):
@@ -318,22 +372,16 @@ while True:
 
             # --- LIMPIEZA DE MINIO ---
             try:
-                # Borrado de frames procesados
                 logger.info(f"Limpiando frames procesados del video {video_id}...")
                 objetos_a_borrar = minio_client.list_objects(
                     "frames-procesados", prefix=f"video_{video_id}/", recursive=True
                 )
                 for obj in objetos_a_borrar:
                     minio_client.remove_object("frames-procesados", obj.object_name)
-                logger.info(f"Frames del video {video_id} eliminados de MinIO.")
-
-                # Borrado de archivos crudos
 
                 logger.info(f"Limpiando archivos crudos del video {video_id}...")
                 minio_client.remove_object(BUCKET_NAME, video.nombre_archivo)
                 minio_client.remove_object(BUCKET_NAME, nombre_json)
-                logger.info("Archivos crudos (video y json) eliminados de MinIO.")
-
             except Exception as cleanup_error:
                 logger.error(f"Error durante la limpieza de MinIO: {cleanup_error}")
 
