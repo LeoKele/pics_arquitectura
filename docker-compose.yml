@@ -61,9 +61,25 @@ services: # Aquí declaramos todos los contenedores (las piezas) de nuestro sist
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@base_datos:5432/${POSTGRES_DB}
       - REDIS_HOST=redis_queue
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
     depends_on:
       base_datos:
-        condition: service_healthy   # <-- ídem
+        condition: service_healthy
+      redis_queue:
+        condition: service_started
+
+  worker_preprocesamiento:
+    build: ./worker
+    command: python worker_preprocesamiento.py
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@base_datos:5432/${POSTGRES_DB}
+      - REDIS_HOST=redis_queue
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
+    depends_on:
+      base_datos:
+        condition: service_healthy
       redis_queue:
         condition: service_started
 

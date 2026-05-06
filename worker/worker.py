@@ -1,12 +1,15 @@
+import json
 import logging
 import os
 import time
 import traceback
 from datetime import datetime
 
+import cv2
 import redis
 from geoalchemy2 import Geometry
 from geoalchemy2.shape import from_shape
+from minio import Minio
 from shapely.geometry import Point
 from sqlalchemy import (
     Column,
@@ -18,30 +21,38 @@ from sqlalchemy import (
     create_engine,
 )
 from sqlalchemy.orm import declarative_base, sessionmaker
+from ultralytics import YOLO
+from ultralytics.utils.plotting import Annotator, colors  # ¡Agregá esta línea!
 
 # Logging
 logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s - %(message)s",
+    level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s - %(message)s"
 )
-logger = logging.getLogger("worker")
-
+logger = logging.getLogger("worker-inferencia")
 
 # Configuración
 REDIS_HOST = os.getenv("REDIS_HOST", "redis_queue")
 DATABASE_URL = os.getenv("DATABASE_URL")
 
+# --- CONEXIÓN A MINIO ---
+minio_client = Minio(
+    "almacenamiento-objetos:9000",
+    access_key=os.getenv("MINIO_ROOT_USER", "minioadmin"),
+    secret_key=os.getenv("MINIO_ROOT_PASSWORD", "minioadmin"),
+    secure=False,
+)
+BUCKET_NAME = "videos-crudos"
+
+# Base de datos
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(bind=engine)
 Base = declarative_base()
-
-# ---------------------------------------------------------
-# Modelos para el Worker
 
 
 class Video(Base):
     __tablename__ = "video"
     id = Column(Integer, primary_key=True)
+    nombre_archivo = Column(String)
     estado = Column(String)
 
 
@@ -57,72 +68,338 @@ class Deteccion(Base):
     fecha_deteccion = Column(DateTime, default=datetime.utcnow)
 
 
-# Conexión a Redis
+# CARGAR EL MODELO YOLO
+logger.info("Cargando modelo YOLO en memoria...")
+modelo_yolo = YOLO("best.pt")
+
 try:
     r = redis.Redis(host=REDIS_HOST, port=6379, db=0)
     r.ping()
-    logger.info("Worker iniciado y conectado a Redis, esperando tareas...")
+    logger.info("Worker de Inferencia conectado a Redis, esperando videos...")
 except Exception as e:
     logger.critical(f"No se pudo conectar a Redis: {e}")
     exit(1)
 
+
+# Función para buscar la coordenada correcta
+def obtener_coordenada(datos_gps, tiempo_ms):
+    if not datos_gps:
+        # Si no hay JSON, devolvemos la falsa por defecto para que no explote
+        return -34.65, -58.79  # Se puede cambiar a 0.0
+
+    # Busca en la lista el GPS cuyo "elapsed_ms" esté más cerca del tiempo del video
+    punto_mas_cercano = min(datos_gps, key=lambda x: abs(x["elapsed_ms"] - tiempo_ms))
+    return punto_mas_cercano["lat"], punto_mas_cercano["lng"]
+
+
 while True:
     try:
-        resultado = r.blpop("tareas_video")
+        resultado = r.blpop("cola_inferencia")
         if not resultado:
             continue
 
-        mensaje = resultado[1]
-        video_id = int(mensaje.decode("utf-8"))
-        logger.info(f"Tarea recibida para video ID: {video_id}")
+        video_id = int(resultado[1].decode("utf-8"))
+        logger.info(f"Iniciando inferencia real para video ID: {video_id}")
 
         db = SessionLocal()
         try:
             video = db.query(Video).filter(Video.id == video_id).first()
             if not video:
-                logger.warning(
-                    f"Video ID {video_id} no encontrado en BD, descartando tarea"
-                )
                 continue
 
             video.estado = "procesando"
             db.commit()
-            logger.info(f"Video ID {video_id} → estado: procesando")
 
-            logger.info(f"Video ID {video_id} → iniciando inferencia de IA")
-            time.sleep(5)
+            # 1. DESCARGAR EL JSON DE COORDENADAS
+            nombre_base = video.nombre_archivo.replace("procesado_", "").rsplit(".", 1)[
+                0
+            ]
+            nombre_json = f"{nombre_base}.json"
+            ruta_json_local = f"/tmp/{nombre_json}"
 
-            punto_moreno = Point(-58.79, -34.65)
-            nueva_deteccion = Deteccion(
-                video_id=video_id,
-                geom=from_shape(punto_moreno, srid=4326),
-                tipo_dano="bache",
-                confianza=0.85,
-                frame_minio_path=f"frames/{video_id}/deteccion_1.jpg",
-                estado_auditoria="pendiente",
+            datos_gps = []
+            try:
+                logger.info(f"Buscando archivo GPS asociado: {nombre_json}")
+                minio_client.fget_object(BUCKET_NAME, nombre_json, ruta_json_local)
+                with open(ruta_json_local, "r") as f:
+                    json_completo = json.load(f)
+                    datos_gps = json_completo.get("data", [])
+                logger.info(f"Éxito: Se cargaron {len(datos_gps)} puntos de GPS.")
+            except Exception as e:
+                logger.warning(
+                    f"No se encontró/leyó el JSON. Se usará coordenada por defecto. Detalles: {e}"
+                )
+
+            # 2. PROCESAR FRAMES INDIVIDUALES CON YOLO
+            # Asegurar que exista el bucket final de detecciones
+            if not minio_client.bucket_exists("detecciones"):
+                minio_client.make_bucket("detecciones")
+
+            logger.info(f"Buscando frames del video {video_id} en MinIO...")
+            objetos_frames = list(
+                minio_client.list_objects(
+                    "frames-procesados", prefix=f"video_{video_id}/", recursive=True
+                )
             )
-            db.add(nueva_deteccion)
+
+            # --- ORDENAR FRAMES CRONOLÓGICAMENTE ---
+            def extraer_tiempo(obj):
+                try:
+                    return int(obj.object_name.split("_")[-1].split(".")[0])
+                except ValueError:
+                    return 0
+
+            objetos_frames.sort(key=extraer_tiempo)
+            # ----------------------------------------------
+
+            baches_detectados = 0
+            diccionario_tracks = {}  # Memoria: track_id (YOLO) -> id (PostgreSQL)
+            ids_procesados = set()  # Memoria de baches ya guardados en este video
+
+            total_frames = len(objetos_frames)
+            logger.info(f"Procesando {total_frames} frames...")
+
+            for i, obj in enumerate(objetos_frames):
+                nombre_archivo_minio = obj.object_name
+
+                # Log de progreso cada 5 frames
+                if i % 5 == 0:
+                    logger.info(
+                        f"Progreso: Frame {i}/{total_frames} ({obj.object_name})"
+                    )
+
+                # Extraer el milisegundo del nombre del archivo
+                try:
+                    tiempo_ms = int(nombre_archivo_minio.split("_")[-1].split(".")[0])
+                except ValueError:
+                    continue
+
+                # Descargar frame temporalmente
+                ruta_local_frame = f"/tmp/frame_{tiempo_ms}.jpg"
+                minio_client.fget_object(
+                    "frames-procesados", nombre_archivo_minio, ruta_local_frame
+                )
+
+                # Inferencia con YOLO
+                frame = cv2.imread(ruta_local_frame)
+                resultados = modelo_yolo.track(
+                    frame,
+                    persist=True,
+                    tracker="bytetrack.yaml",
+                    conf=0.30,
+                    iou=0.4,
+                    verbose=False,
+                )[0]
+
+                # Extraemos los IDs que le asignó ByteTrack a cada caja
+                if resultados.boxes.id is not None:
+                    track_ids = resultados.boxes.id.int().cpu().tolist()
+                else:
+                    track_ids = [None] * len(resultados.boxes)
+
+                for j, (box, track_id) in enumerate(zip(resultados.boxes, track_ids)):
+                    confianza = float(box.conf[0])
+                    clase_id = int(box.cls[0])
+                    nombre_clase = modelo_yolo.names[clase_id]
+
+                    if confianza > 0.30:
+                        # --- 0. FILTRO DE HORIZONTE (50%) ---
+                        # Evitar detectar árboles, cables o cielo como baches.
+                        # El bache debe estar en la carretera (parte inferior).
+                        y_centro = float(box.xywh[0][1])
+                        alto_imagen = frame.shape[0]
+                        if y_centro < (alto_imagen * 0.50):
+                            logger.info(
+                                f"Omitiendo {nombre_clase} por estar en el horizonte (posible árbol/cielo)"
+                            )
+                            continue
+
+                        # Log descriptivo del ID (visual tracking ID)
+                        id_log = (
+                            f"ID:{track_id}" if track_id is not None else "ID:NUEVO"
+                        )
+
+                        # --- 2. VERIFICACIÓN GEOGRÁFICA (Deduplicación y Mejora) ---
+                        lat, lng = obtener_coordenada(datos_gps, tiempo_ms)
+                        punto_wkt = f"SRID=4326;POINT({lng} {lat})"
+
+                        # Definir umbral de distancia dinámico (en grados aproximados)
+                        # 0.00001 ~= 1.1 metros
+                        distancias_map = {
+                            "d40": 0.00003,  # Bache/Pozo (3m)
+                            "d20": 0.00010,  # Piel de cocodrilo/Grietas (10m)
+                            "calle_tierra": 0.00030,  # Calle de tierra (30m)
+                        }
+                        # Buscamos el umbral según la clase, por defecto 3m
+                        umbral = distancias_map.get(nombre_clase.lower(), 0.00003)
+
+                        duplicado = None
+
+                        # A) Búsqueda por Inteligencia Artificial (Prioridad 1)
+                        if track_id is not None and track_id in diccionario_tracks:
+                            id_bd = diccionario_tracks[track_id]
+                            duplicado = (
+                                db.query(Deteccion)
+                                .filter(Deteccion.id == id_bd)
+                                .first()
+                            )
+
+                        # B) Búsqueda Geográfica (Prioridad 2)
+                        if not duplicado:
+                            duplicado = (
+                                db.query(Deteccion)
+                                .filter(
+                                    Deteccion.video_id == video_id,
+                                    Deteccion.tipo_dano == nombre_clase,
+                                    Deteccion.geom.ST_DWithin(punto_wkt, umbral),
+                                )
+                                .first()
+                            )
+
+                            # Si lo encontró por GPS, lo "atamos" a este track_id para los próximos frames
+                            if duplicado and track_id is not None:
+                                diccionario_tracks[track_id] = duplicado.id
+
+                        # --- ACTUALIZAR SI ES DUPLICADO ---
+                        if duplicado:
+                            if confianza > duplicado.confianza:
+                                logger.info(
+                                    f"Actualizando {nombre_clase} ({id_log}): {duplicado.confianza:.2f} -> {confianza:.2f}"
+                                )
+
+                                # Borrar la foto vieja de MinIO
+                                if duplicado.frame_minio_path:
+                                    try:
+                                        minio_client.remove_object(
+                                            "detecciones", duplicado.frame_minio_path
+                                        )
+                                    except Exception as e:
+                                        logger.warning(
+                                            f"No se pudo borrar foto vieja de MinIO: {e}"
+                                        )
+
+                                # Dibujar SOLO la caja actual usando OpenCV
+                                frame_con_caja = frame.copy()
+                                x1, y1, x2, y2 = map(int, box.xyxy[0])
+                                # Dibujar SOLO la caja actual usando el estilo original de YOLO
+                                frame_con_caja = frame.copy()
+                                annotator = Annotator(frame_con_caja, line_width=2)
+                                etiqueta = f"{nombre_clase} {confianza:.2f}"
+
+                                # Usamos colors(clase_id, True)
+                                annotator.box_label(
+                                    box.xyxy[0], etiqueta, color=colors(clase_id, True)
+                                )
+                                frame_con_caja = annotator.result()
+
+                                nombre_det = f"bache_{tiempo_ms}_box{j}.jpg"
+                                ruta_det_local = f"/tmp/{nombre_det}"
+                                cv2.imwrite(ruta_det_local, frame_con_caja)
+
+                                ruta_minio_deteccion = f"video_{video_id}/{nombre_det}"
+                                minio_client.fput_object(
+                                    "detecciones",
+                                    ruta_minio_deteccion,
+                                    ruta_det_local,
+                                    content_type="image/jpeg",
+                                )
+
+                                # Actualizar BD
+                                duplicado.confianza = confianza
+                                duplicado.frame_minio_path = ruta_minio_deteccion
+                                duplicado.geom = from_shape(Point(lng, lat), srid=4326)
+                                db.commit()
+
+                                os.remove(ruta_det_local)
+                            continue
+
+                        # --- CREAR SI ES NUEVO ---
+                        baches_detectados += 1
+                        logger.info(
+                            f"NUEVO bache detectado: {nombre_clase} ({id_log}, Conf: {confianza:.2f})"
+                        )
+
+                        # Dibujar SOLO la caja actual usando OpenCV
+                        frame_con_caja = frame.copy()
+                        x1, y1, x2, y2 = map(int, box.xyxy[0])
+                        # Dibujar SOLO la caja actual usando el estilo original de YOLO
+                        frame_con_caja = frame.copy()
+                        annotator = Annotator(frame_con_caja, line_width=2)
+                        etiqueta = f"{nombre_clase} {confianza:.2f}"
+
+                        # Usamos colors(clase_id, True) para recuperar el color exacto original
+                        annotator.box_label(
+                            box.xyxy[0], etiqueta, color=colors(clase_id, True)
+                        )
+                        frame_con_caja = annotator.result()
+
+                        nombre_det = f"bache_{tiempo_ms}_box{j}.jpg"
+                        ruta_det_local = f"/tmp/{nombre_det}"
+                        cv2.imwrite(ruta_det_local, frame_con_caja)
+
+                        ruta_minio_deteccion = f"video_{video_id}/{nombre_det}"
+                        minio_client.fput_object(
+                            "detecciones",
+                            ruta_minio_deteccion,
+                            ruta_det_local,
+                            content_type="image/jpeg",
+                        )
+
+                        nueva_deteccion = Deteccion(
+                            video_id=video_id,
+                            geom=from_shape(Point(lng, lat), srid=4326),
+                            tipo_dano=nombre_clase,
+                            confianza=confianza,
+                            frame_minio_path=ruta_minio_deteccion,
+                            estado_auditoria="pendiente",
+                        )
+                        db.add(nueva_deteccion)
+                        db.commit()
+
+                        # Actualizar la base de datos para obtener el ID real (1, 2, 3...)
+                        db.refresh(nueva_deteccion)
+
+                        # Guardar la relación "ID de YOLO -> ID de Postgres"
+                        if track_id is not None:
+                            diccionario_tracks[track_id] = nueva_deteccion.id
+
+                        os.remove(ruta_det_local)
+
+                os.remove(ruta_local_frame)
+
+            if os.path.exists(ruta_json_local):
+                os.remove(ruta_json_local)
+
+            # --- LIMPIEZA DE MINIO ---
+            try:
+                logger.info(f"Limpiando frames procesados del video {video_id}...")
+                objetos_a_borrar = minio_client.list_objects(
+                    "frames-procesados", prefix=f"video_{video_id}/", recursive=True
+                )
+                for obj in objetos_a_borrar:
+                    minio_client.remove_object("frames-procesados", obj.object_name)
+
+                logger.info(f"Limpiando archivos crudos del video {video_id}...")
+                minio_client.remove_object(BUCKET_NAME, video.nombre_archivo)
+                minio_client.remove_object(BUCKET_NAME, nombre_json)
+            except Exception as cleanup_error:
+                logger.error(f"Error durante la limpieza de MinIO: {cleanup_error}")
 
             video.estado = "procesado"
             db.commit()
-            logger.info(f"Video ID {video_id} → estado: procesado. Detección guardada.")
+            logger.info(
+                f"Video {video_id} terminado. Se encontraron {baches_detectados} baches reales."
+            )
 
         except Exception as e:
             db.rollback()
             logger.error(f"Error procesando video ID {video_id}: {e}")
             logger.debug(traceback.format_exc())
-
             if "video" in locals() and video:
-                try:
-                    video.estado = "error"
-                    db.commit()
-                    logger.warning(f"Video ID {video_id} → estado: error")
-                except Exception:
-                    pass
-
+                video.estado = "error"
+                db.commit()
         finally:
             db.close()
 
-    except Exception as general_error:
-        logger.error(f"Error general en el loop del worker: {general_error}")
+    except Exception as e:
         time.sleep(2)

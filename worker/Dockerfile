@@ -1,7 +1,13 @@
 FROM python:3.14-slim
 
-# Instalar dependencias del sistema para PostGIS/Psycopg2
+# Instalar dependencias del sistema
 RUN apt-get update && apt-get install -y \
+    libgl1 \
+    libglib2.0-0 \
+    libsm6 \
+    libxrender1 \
+    libxext6 \
+    libxcb1 \
     libpq-dev \
     gcc \
     && rm -rf /var/lib/apt/lists/*
