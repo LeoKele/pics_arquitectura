@@ -176,16 +176,20 @@ async def preguntar_a_video(
             {
                 "role": "system", 
                 "content": (
-                    f"Sos un inspector vial experto analizando el video {video_id}.\n"
+                    f"Sos un sistema de IA especializado ÚNICAMENTE en la inspección vial del video {video_id}.\n"
                     f"- Baches detectados: {cantidad}\n"
                     f"- Confianza promedio: {confianza_promedio:.2%}\n"
-                    f"- Coordenadas de los baches: Lat: {lat}, Lng: {lng}\n\n"
-                    f"CONTEXTO PREVIO (Si lo hay):\n{reporte_texto}\n\n"
-                    "INSTRUCCIONES OBLIGATORIAS:\n"
-                    "1. HERRAMIENTA DE MAPA: Si el usuario te pregunta por calles, lugares, comercios o ubicación, TENÉS LA OBLIGACIÓN de usar la herramienta 'consultar_mapa_osm' usando las coordenadas proporcionadas.\n"
-                    "2. NO PIDAS PERMISO: Ejecutá la herramienta vos mismo de forma invisible. NUNCA le digas al usuario 'puedes intentar utilizar la herramienta...'.\n"
-                    "3. OBJETIVIDAD EXTREMA: Basate ÚNICA Y EXCLUSIVAMENTE en los datos de la herramienta o el reporte. Si el usuario sugiere una calle o lugar (ej. '¿Están en Av. Rivadavia?') y el mapa dice otra cosa (ej. 'Están en Teniente Ibañez'), CORREGÍ AL USUARIO diciendo 'No, los baches se encuentran en [Calle Real]'. NUNCA inventes coincidencias para darle la razón al usuario.\n"
-                    "4. PRECISIÓN: Si usaste la herramienta y el lugar solicitado no aparece en los datos devueltos, respondé claramente que no hay registros de ese lugar en la zona de la inspección."
+                    f"- Coordenadas: Lat: {lat}, Lng: {lng}\n\n"
+                    "REGLA DE ORO: Si el usuario pregunta algo que NO sea sobre baches, calles o el video (ej. Python, clima, recetas), NO USES HERRAMIENTAS. Respondé: 'Lo siento, estoy diseñado exclusivamente para asistir en la inspección de baches'.\n\n"
+                    "INSTRUCCIONES:\n"
+                    "1. SOLO baches e infraestructura vial.\n"
+                    "2. HERRAMIENTA DE MAPA: Usala SOLO si preguntan por calles o lugares cercanos a las coordenadas dadas.\n"
+                    "3. OBJETIVIDAD: Basate en el reporte o el mapa. No inventes.\n\n"
+                    "EJEMPLOS DE COMPORTAMIENTO:\n"
+                    "User: ¿Qué versión de Python usás?\n"
+                    "IA: Lo siento, estoy diseñado exclusivamente para asistir en la inspección de baches y no puedo responder sobre otros temas.\n"
+                    "User: ¿Dónde están los baches?\n"
+                    "IA: [Usa la herramienta consultar_mapa_osm]"
                 )
             },
             {"role": "user", "content": request.pregunta}
@@ -235,14 +239,12 @@ async def preguntar_a_video(
                 datos_osm = await obtener_contexto_geografico(arg_lat, arg_lng, radio_pois=400)
                 logger.info(f"Datos obtenidos de OSM: {datos_osm}")
                 
-                # Le pasamos los datos del mapa a la IA
                 mensajes.append(mensaje_ia)
                 mensajes.append({
                     "role": "tool",
                     "content": json.dumps(datos_osm)
                 })
 
-                # El Agente redacta la respuesta final
                 respuesta_fase2 = await client.post(
                     f"{settings.OLLAMA_URL}/api/chat",
                     json={"model": "llama3.2:3b", "messages": mensajes, "stream": False},
