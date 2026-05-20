@@ -8,9 +8,10 @@ logger = logging.getLogger("api.geo_service")
 
 # Lista de instancias de Overpass para fallback
 OVERPASS_URLS = [
-    "https://overpass-api.de/api/interpreter",
-    "https://overpass.osm.ch/api/interpreter",
-    "https://overpass.kumi.systems/api/interpreter",
+    "https://overpass-api.de/api/interpreter",        
+    "https://lz4.overpass-api.de/api/interpreter",    
+    "https://z.overpass-api.de/api/interpreter",      
+    "https://maps.mail.ru/osm/tools/overpass/api/interpreter" 
 ]
 
 

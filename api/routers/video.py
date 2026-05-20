@@ -1,4 +1,6 @@
+import json
 import logging
+import traceback
 
 import httpx
 import models
@@ -13,14 +15,11 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 from services.geo_service import obtener_contexto_geografico
 
-
 router = APIRouter()
 logger = logging.getLogger("api.video")
 
-
 class PreguntaRequest(BaseModel):
     pregunta: str
-
 
 @router.post(
     "/api/v1/videos",
@@ -112,71 +111,160 @@ def obtener_estado_video(video_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/api/v1/video/{video_id}/preguntar", tags=["Inteligencia Artificial"])
-def preguntar_a_video(
+async def preguntar_a_video(
     video_id: int, request: PreguntaRequest, db: Session = Depends(get_db)
 ):
     """
-    Permite hacerle una pregunta en lenguaje natural a la
-    IA sobre los resultados de un video.
+    Agente de IA Híbrido: Utiliza el reporte si existe, pero tiene la capacidad de 
+    consultar OpenStreetMap en tiempo real de forma autónoma si necesita más datos.
     """
+
     video = db.query(models.Video).filter(models.Video.id == video_id).first()
     if not video:
         raise HTTPException(status_code=404, detail="Video no encontrado")
     if video.estado != "procesado":
         raise HTTPException(status_code=400, detail="El video aún no fue procesado.")
 
-    detecciones = (
-        db.query(models.Deteccion).filter(models.Deteccion.video_id == video_id).all()
-    )
-    cantidad = len(detecciones)
-    confianza_promedio = (
-        sum(d.confianza for d in detecciones) / cantidad if cantidad > 0 else 0
-    )
-
-    # Buscar el Reporte generado previamente (que contiene los datos de OSM)
-    reporte = (
-        db.query(models.Reporte)
-        .join(models.ReporteVideo)
-        .filter(models.ReporteVideo.video_id == video_id)
-        .order_by(models.Reporte.fecha_generacion.desc())
-        .first()
-    )
-
-
-    prompt = "Sos un asistente técnico de inspección vial del municipio.\n\n"
-    prompt += f"DATOS BÁSICOS DEL VIDEO {video_id}:\n"
-    prompt += f"- Baches detectados: {cantidad}\n"
-    prompt += f"- Confianza promedio: {confianza_promedio:.2%}\n\n"
-    
-    prompt += "CONTEXTO GEOGRÁFICO Y COMERCIOS CERCANOS:\n"
-    if reporte and reporte.contenido:
-        prompt += reporte.contenido + "\n\n"
-    else:
-        prompt += "No hay datos de comercios cercanos o reporte geográfico en el sistema para este video.\n\n"
-        
-    prompt += f'PREGUNTA DEL USUARIO: "{request.pregunta}"\n\n'
-    prompt += "Respondé de forma breve y profesional usando la información geográfica provista arriba.\n"
-    prompt += "REGLAS IMPORTANTES:\n"
-    prompt += "1. Sé flexible con los nombres: si el usuario pregunta por 'Julio Asseff' y en el texto figura 'Intendente Doctor Julio Asseff', asumí que es la misma calle.\n"
-    prompt += "2. Si el usuario pregunta por un tipo de lugar (ej. 'una escuela' o 'un hospital'), y en el texto hay uno específico (ej. 'Escuela Lakohmi'), usá esa información.\n"
-    prompt += "3. Si la información solicitada definitivamente NO figura en el texto, indicá claramente que no tenés esa información."
-    
     try:
-        response = httpx.post(
-            f"{settings.OLLAMA_URL}/api/generate",
-            json={"model": "llama3.2:3b", "prompt": prompt, "stream": False},
-            timeout=60.0,
+        
+        detecciones = db.query(models.Deteccion).filter(models.Deteccion.video_id == video_id).all()
+        cantidad = len(detecciones)
+        confianza_promedio = sum(d.confianza for d in detecciones) / cantidad if cantidad > 0 else 0
+
+        # Obtener Reporte (si existe)
+        reporte = (
+            db.query(models.Reporte)
+            .join(models.ReporteVideo)
+            .filter(models.ReporteVideo.video_id == video_id)
+            .order_by(models.Reporte.fecha_generacion.desc())
+            .first()
         )
-        response.raise_for_status()
-        respuesta_ia = response.json().get("response", "No se pudo generar respuesta.")
+        reporte_texto = reporte.contenido if reporte and reporte.contenido else "No hay reporte previo generado para este video."
+
+        # Obtener Coordenadas para la herramienta
+        query_centroide = text("""
+            SELECT ST_Y(ST_Centroid(ST_Collect(geom))) as lat, 
+                   ST_X(ST_Centroid(ST_Collect(geom))) as lng
+            FROM deteccion WHERE video_id = :v_id
+        """)
+        centroide = db.execute(query_centroide, {"v_id": video_id}).fetchone()
+        
+        lat = float(centroide[0]) if centroide and centroide[0] else 0.0
+        lng = float(centroide[1]) if centroide and centroide[1] else 0.0
+
+        # Tool
+        herramientas = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "consultar_mapa_osm",
+                    "description": "Obtiene las calles y puntos de interés (escuelas, comercios, etc) reales cercanos a unas coordenadas.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "lat": {"type": "number", "description": "Latitud"},
+                            "lng": {"type": "number", "description": "Longitud"}
+                        },
+                        "required": ["lat", "lng"]
+                    }
+                }
+            }
+        ]
+
+        # Prompt
+        mensajes = [
+            {
+                "role": "system", 
+                "content": (
+                    f"Sos un inspector vial experto analizando el video {video_id}.\n"
+                    f"- Baches detectados: {cantidad}\n"
+                    f"- Confianza promedio: {confianza_promedio:.2%}\n"
+                    f"- Coordenadas de los baches: Lat: {lat}, Lng: {lng}\n\n"
+                    f"CONTEXTO PREVIO (Si lo hay):\n{reporte_texto}\n\n"
+                    "INSTRUCCIONES OBLIGATORIAS:\n"
+                    "1. HERRAMIENTA DE MAPA: Si el usuario te pregunta por calles, lugares, comercios o ubicación, TENÉS LA OBLIGACIÓN de usar la herramienta 'consultar_mapa_osm' usando las coordenadas proporcionadas.\n"
+                    "2. NO PIDAS PERMISO: Ejecutá la herramienta vos mismo de forma invisible. NUNCA le digas al usuario 'puedes intentar utilizar la herramienta...'.\n"
+                    "3. OBJETIVIDAD EXTREMA: Basate ÚNICA Y EXCLUSIVAMENTE en los datos de la herramienta o el reporte. Si el usuario sugiere una calle o lugar (ej. '¿Están en Av. Rivadavia?') y el mapa dice otra cosa (ej. 'Están en Teniente Ibañez'), CORREGÍ AL USUARIO diciendo 'No, los baches se encuentran en [Calle Real]'. NUNCA inventes coincidencias para darle la razón al usuario.\n"
+                    "4. PRECISIÓN: Si usaste la herramienta y el lugar solicitado no aparece en los datos devueltos, respondé claramente que no hay registros de ese lugar en la zona de la inspección."
+                )
+            },
+            {"role": "user", "content": request.pregunta}
+        ]
+
+        # El Agente decide si usa la herramienta o responde directo segun convenga
+        async with httpx.AsyncClient() as client:
+            respuesta_fase1 = await client.post(
+                f"{settings.OLLAMA_URL}/api/chat",
+                json={"model": "llama3.2:3b", "messages": mensajes, "tools": herramientas, "stream": False},
+                timeout=60.0
+            )
+            respuesta_fase1.raise_for_status()
+            mensaje_ia = respuesta_fase1.json().get("message", {})
+
+            # Ejecución de la herramienta
+            if "tool_calls" in mensaje_ia and mensaje_ia["tool_calls"]:
+                logger.info("El Agente decidió usar el mapa de OpenStreetMap en vivo.")
+                
+                argumentos_crudos = mensaje_ia["tool_calls"][0]["function"].get("arguments", {})
+                
+                if isinstance(argumentos_crudos, str):
+                    try:
+                        argumentos = json.loads(argumentos_crudos)
+                    except json.JSONDecodeError:
+                        logger.warning("La IA mando un JSON inválido. Rescatando...")
+                        argumentos = {}
+                else:
+                    argumentos = argumentos_crudos
+                
+                if not isinstance(argumentos, dict):
+                    argumentos = {}
+
+                # Conversión a floats x q si no no funciona bien
+                arg_lat = lat
+                arg_lng = lng
+                try:
+                    if "lat" in argumentos and argumentos["lat"] not in [None, ""]:
+                        arg_lat = float(argumentos["lat"])
+                    if "lng" in argumentos and argumentos["lng"] not in [None, ""]:
+                        arg_lng = float(argumentos["lng"])
+                except (ValueError, TypeError):
+                    logger.warning("La IA Usó las reales de la BD.")
+                # -----------------------------------------------------
+                
+                # Llamada real a geo_service
+                datos_osm = await obtener_contexto_geografico(arg_lat, arg_lng, radio_pois=400)
+                logger.info(f"Datos obtenidos de OSM: {datos_osm}")
+                
+                # Le pasamos los datos del mapa a la IA
+                mensajes.append(mensaje_ia)
+                mensajes.append({
+                    "role": "tool",
+                    "content": json.dumps(datos_osm)
+                })
+
+                # El Agente redacta la respuesta final
+                respuesta_fase2 = await client.post(
+                    f"{settings.OLLAMA_URL}/api/chat",
+                    json={"model": "llama3.2:3b", "messages": mensajes, "stream": False},
+                    timeout=60.0
+                )
+                respuesta_fase2.raise_for_status()
+                texto_final = respuesta_fase2.json().get("message", {}).get("content", "Error al procesar.")
+            
+            else:
+                logger.info("El Agente respondió directamente usando el reporte/contexto.")
+                texto_final = mensaje_ia.get("content", "Sin respuesta.")
+
 
         return {
             "video_id": video_id,
             "pregunta": request.pregunta,
-            "respuesta": respuesta_ia,
+            "respuesta": texto_final
         }
+
     except Exception as e:
-        logger.error(f"Error en Q&A con Ollama: {e}")
-        raise HTTPException(
-            status_code=500, detail="Error al comunicarse con la IA local."
-        )
+        logger.error("=== ERROR EN EL AGENTE ===")
+        logger.error(str(e))
+        logger.error(traceback.format_exc())
+        logger.error("==========================")
+        raise HTTPException(status_code=500, detail="Error en la Inteligencia Artificial.")
