@@ -10,6 +10,9 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from minio.error import S3Error
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+from sqlalchemy import text
+from services.geo_service import obtener_contexto_geografico
+
 
 router = APIRouter()
 logger = logging.getLogger("api.video")
@@ -130,18 +133,34 @@ def preguntar_a_video(
         sum(d.confianza for d in detecciones) / cantidad if cantidad > 0 else 0
     )
 
-    prompt = f"""Sos un asistente técnico de inspección vial.
-    A continuación te paso los datos del análisis del video {video_id}:
-    - Cantidad total de baches detectados: {cantidad}
-    - Nivel de confianza promedio del algoritmo: {confianza_promedio:.2%}
+    # Buscar el Reporte generado previamente (que contiene los datos de OSM)
+    reporte = (
+        db.query(models.Reporte)
+        .join(models.ReporteVideo)
+        .filter(models.ReporteVideo.video_id == video_id)
+        .order_by(models.Reporte.fecha_generacion.desc())
+        .first()
+    )
 
-    El usuario te hace la siguiente pregunta sobre esta inspección: "{request.pregunta}"
 
-    Respondé de forma breve, directa y profesional basándote
-    ÚNICAMENTE en los datos provistos.
-    Si la pregunta no tiene relación con calles, baches o inspecciones,
-    indicá amablemente que no podés responder eso."""
-
+    prompt = "Sos un asistente técnico de inspección vial del municipio.\n\n"
+    prompt += f"DATOS BÁSICOS DEL VIDEO {video_id}:\n"
+    prompt += f"- Baches detectados: {cantidad}\n"
+    prompt += f"- Confianza promedio: {confianza_promedio:.2%}\n\n"
+    
+    prompt += "CONTEXTO GEOGRÁFICO Y COMERCIOS CERCANOS:\n"
+    if reporte and reporte.contenido:
+        prompt += reporte.contenido + "\n\n"
+    else:
+        prompt += "No hay datos de comercios cercanos o reporte geográfico en el sistema para este video.\n\n"
+        
+    prompt += f'PREGUNTA DEL USUARIO: "{request.pregunta}"\n\n'
+    prompt += "Respondé de forma breve y profesional usando la información geográfica provista arriba.\n"
+    prompt += "REGLAS IMPORTANTES:\n"
+    prompt += "1. Sé flexible con los nombres: si el usuario pregunta por 'Julio Asseff' y en el texto figura 'Intendente Doctor Julio Asseff', asumí que es la misma calle.\n"
+    prompt += "2. Si el usuario pregunta por un tipo de lugar (ej. 'una escuela' o 'un hospital'), y en el texto hay uno específico (ej. 'Escuela Lakohmi'), usá esa información.\n"
+    prompt += "3. Si la información solicitada definitivamente NO figura en el texto, indicá claramente que no tenés esa información."
+    
     try:
         response = httpx.post(
             f"{settings.OLLAMA_URL}/api/generate",
@@ -156,8 +175,8 @@ def preguntar_a_video(
             "pregunta": request.pregunta,
             "respuesta": respuesta_ia,
         }
-    except Exception:
-        logger.error("Error en Q&A con Ollama")
+    except Exception as e:
+        logger.error(f"Error en Q&A con Ollama: {e}")
         raise HTTPException(
             status_code=500, detail="Error al comunicarse con la IA local."
         )
