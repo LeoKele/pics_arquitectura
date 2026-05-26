@@ -27,7 +27,9 @@ El código se organiza de la siguiente manera:
 - **worker/**: Lógica de procesamiento en segundo plano.
     - `worker_preprocesamiento.py`: Lógica de extracción de frames y sincronización GPS.
     - `worker.py`: Orquestador de la inferencia con el modelo YOLO.
+    - `anonimizador.py`: Módulo que gestiona la difuminación de rostros y patentes.
     - `best.pt`: Pesos del modelo YOLO entrenado para detección de daños.
+    - `yolov8s-face-lindevs.pt` y `license-plate-finetune-v1s.pt`: Pesos de los modelos de censura
 - **observabilidad/**: Archivos de configuración para el stack de monitoreo (Promtail).
 - **docker-compose.yml**: Definición de toda la infraestructura como código.
 
@@ -137,3 +139,5 @@ El sistema utiliza **llama3.2:3b** ejecutándose localmente. Esto garantiza la p
 5. **Renderizado Aislado:** El sistema sobreescribe la función de dibujo por defecto de la IA. En lugar de renderizar todas las cajas candidatas superpuestas, aísla y dibuja exclusivamente el recuadro (*bounding box*) del daño que superó estrictamente todos los filtros geográficos y de confianza, generando un respaldo visual limpio.
 
 6. **Filtro de Horizonte (ROI):** Delimita el área de interés exclusivamente a la superficie de rodamiento, descartando automáticamente elementos irrelevantes o falsos positivos ubicados en la mitad superior de la imagen (cielo, árboles, cableado).
+
+7. **Anonimización Automática (Rostros y Patentes):** El sistema difumina de forma automática los rostros de peatones y patentes de vehículos en las imágenes finales asociadas a daños viales. Corre de forma secuencial dos modelos YOLO especializados (`yolov8s-face-lindevs.pt` y `license-plate-finetune-v1s.pt`) sobre los frames seleccionados antes de dibujar las anotaciones del bache y subirse a MinIO, asegurando privacidad y cumplimiento de normativas de datos sin ralentizar el pipeline de inferencia principal.

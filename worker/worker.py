@@ -7,6 +7,7 @@ from datetime import datetime
 
 import cv2
 import redis
+from anonimizador import anonimizar_frame
 from geoalchemy2 import Geometry
 from geoalchemy2.shape import from_shape
 from minio import Minio
@@ -22,7 +23,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import declarative_base, sessionmaker
 from ultralytics import YOLO
-from ultralytics.utils.plotting import Annotator, colors  # ¡Agregá esta línea!
+from ultralytics.utils.plotting import Annotator, colors
 
 # Logging
 logging.basicConfig(
@@ -92,6 +93,39 @@ def obtener_coordenada(datos_gps, tiempo_ms):
     return punto_mas_cercano["lat"], punto_mas_cercano["lng"]
 
 
+def guardar_y_subir_imagen(
+    frame_original, box, clase_id, nombre_clase, confianza, video_id, tiempo_ms, j
+):
+    # 1. Anonimizar el frame original
+    frame_anonimo = anonimizar_frame(frame_original)
+
+    # 2. Dibujar la caja del bache sobre el frame anonimizado
+    annotator = Annotator(frame_anonimo, line_width=2)
+    etiqueta = f"{nombre_clase} {confianza:.2f}"
+    annotator.box_label(box.xyxy[0], etiqueta, color=colors(clase_id, True))
+    frame_con_caja = annotator.result()
+
+    # 3. Guardar localmente
+    nombre_det = f"bache_{tiempo_ms}_box{j}.jpg"
+    ruta_det_local = f"/tmp/{nombre_det}"
+    cv2.imwrite(ruta_det_local, frame_con_caja)
+
+    # 4. Subir a MinIO
+    ruta_minio_deteccion = f"video_{video_id}/{nombre_det}"
+    minio_client.fput_object(
+        "detecciones",
+        ruta_minio_deteccion,
+        ruta_det_local,
+        content_type="image/jpeg",
+    )
+
+    # Limpiar archivo local
+    if os.path.exists(ruta_det_local):
+        os.remove(ruta_det_local)
+
+    return ruta_minio_deteccion
+
+
 while True:
     try:
         resultado = r.blpop("cola_inferencia")
@@ -127,7 +161,8 @@ while True:
                 logger.info(f"Éxito: Se cargaron {len(datos_gps)} puntos de GPS.")
             except Exception as e:
                 logger.warning(
-                    f"No se encontró/leyó el JSON. Se usará coordenada por defecto. Detalles: {e}"
+                    f"""No se encontró/leyó el JSON. Se usará coordenada por defecto. 
+                    Detalles: {e}"""
                 )
 
             # 2. PROCESAR FRAMES INDIVIDUALES CON YOLO
@@ -278,30 +313,16 @@ while True:
                                             f"No se pudo borrar foto vieja de MinIO: {e}"
                                         )
 
-                                # Dibujar SOLO la caja actual usando OpenCV
-                                frame_con_caja = frame.copy()
-                                x1, y1, x2, y2 = map(int, box.xyxy[0])
-                                # Dibujar SOLO la caja actual usando el estilo original de YOLO
-                                frame_con_caja = frame.copy()
-                                annotator = Annotator(frame_con_caja, line_width=2)
-                                etiqueta = f"{nombre_clase} {confianza:.2f}"
-
-                                # Usamos colors(clase_id, True)
-                                annotator.box_label(
-                                    box.xyxy[0], etiqueta, color=colors(clase_id, True)
-                                )
-                                frame_con_caja = annotator.result()
-
-                                nombre_det = f"bache_{tiempo_ms}_box{j}.jpg"
-                                ruta_det_local = f"/tmp/{nombre_det}"
-                                cv2.imwrite(ruta_det_local, frame_con_caja)
-
-                                ruta_minio_deteccion = f"video_{video_id}/{nombre_det}"
-                                minio_client.fput_object(
-                                    "detecciones",
-                                    ruta_minio_deteccion,
-                                    ruta_det_local,
-                                    content_type="image/jpeg",
+                                # Guardar y subir imagen anonimizada y anotada
+                                ruta_minio_deteccion = guardar_y_subir_imagen(
+                                    frame,
+                                    box,
+                                    clase_id,
+                                    nombre_clase,
+                                    confianza,
+                                    video_id,
+                                    tiempo_ms,
+                                    j,
                                 )
 
                                 # Actualizar BD
@@ -309,8 +330,6 @@ while True:
                                 duplicado.frame_minio_path = ruta_minio_deteccion
                                 duplicado.geom = from_shape(Point(lng, lat), srid=4326)
                                 db.commit()
-
-                                os.remove(ruta_det_local)
                             continue
 
                         # --- CREAR SI ES NUEVO ---
@@ -319,30 +338,16 @@ while True:
                             f"NUEVO bache detectado: {nombre_clase} ({id_log}, Conf: {confianza:.2f})"
                         )
 
-                        # Dibujar SOLO la caja actual usando OpenCV
-                        frame_con_caja = frame.copy()
-                        x1, y1, x2, y2 = map(int, box.xyxy[0])
-                        # Dibujar SOLO la caja actual usando el estilo original de YOLO
-                        frame_con_caja = frame.copy()
-                        annotator = Annotator(frame_con_caja, line_width=2)
-                        etiqueta = f"{nombre_clase} {confianza:.2f}"
-
-                        # Usamos colors(clase_id, True) para recuperar el color exacto original
-                        annotator.box_label(
-                            box.xyxy[0], etiqueta, color=colors(clase_id, True)
-                        )
-                        frame_con_caja = annotator.result()
-
-                        nombre_det = f"bache_{tiempo_ms}_box{j}.jpg"
-                        ruta_det_local = f"/tmp/{nombre_det}"
-                        cv2.imwrite(ruta_det_local, frame_con_caja)
-
-                        ruta_minio_deteccion = f"video_{video_id}/{nombre_det}"
-                        minio_client.fput_object(
-                            "detecciones",
-                            ruta_minio_deteccion,
-                            ruta_det_local,
-                            content_type="image/jpeg",
+                        # Guardar y subir imagen anonimizada y anotada
+                        ruta_minio_deteccion = guardar_y_subir_imagen(
+                            frame,
+                            box,
+                            clase_id,
+                            nombre_clase,
+                            confianza,
+                            video_id,
+                            tiempo_ms,
+                            j,
                         )
 
                         nueva_deteccion = Deteccion(
@@ -362,8 +367,6 @@ while True:
                         # Guardar la relación "ID de YOLO -> ID de Postgres"
                         if track_id is not None:
                             diccionario_tracks[track_id] = nueva_deteccion.id
-
-                        os.remove(ruta_det_local)
 
                 os.remove(ruta_local_frame)
 
