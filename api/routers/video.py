@@ -11,15 +11,17 @@ from dependencias import minio_client, r
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from minio.error import S3Error
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
-from sqlalchemy import text
 from services.geo_service import obtener_contexto_geografico
+from sqlalchemy import text
+from sqlalchemy.orm import Session
 
 router = APIRouter()
 logger = logging.getLogger("api.video")
 
+
 class PreguntaRequest(BaseModel):
     pregunta: str
+
 
 @router.post(
     "/api/v1/videos",
@@ -115,7 +117,7 @@ async def preguntar_a_video(
     video_id: int, request: PreguntaRequest, db: Session = Depends(get_db)
 ):
     """
-    Agente de IA Híbrido: Utiliza el reporte si existe, pero tiene la capacidad de 
+    Agente de IA Híbrido: Utiliza el reporte si existe, pero tiene la capacidad de
     consultar OpenStreetMap en tiempo real de forma autónoma si necesita más datos.
     """
 
@@ -126,10 +128,19 @@ async def preguntar_a_video(
         raise HTTPException(status_code=400, detail="El video aún no fue procesado.")
 
     try:
-        
-        detecciones = db.query(models.Deteccion).filter(models.Deteccion.video_id == video_id).all()
+
+        detecciones = (
+            db.query(models.Deteccion)
+            .filter(
+                models.Deteccion.video_id == video_id,
+                models.Deteccion.estado_auditoria != "falso_positivo",
+            )
+            .all()
+        )
         cantidad = len(detecciones)
-        confianza_promedio = sum(d.confianza for d in detecciones) / cantidad if cantidad > 0 else 0
+        confianza_promedio = (
+            sum(d.confianza for d in detecciones) / cantidad if cantidad > 0 else 0
+        )
 
         # Obtener Reporte (si existe)
         reporte = (
@@ -139,16 +150,20 @@ async def preguntar_a_video(
             .order_by(models.Reporte.fecha_generacion.desc())
             .first()
         )
-        reporte_texto = reporte.contenido if reporte and reporte.contenido else "No hay reporte previo generado para este video."
+        reporte_texto = (
+            reporte.contenido
+            if reporte and reporte.contenido
+            else "No hay reporte previo generado para este video."
+        )
 
         # Obtener Coordenadas para la herramienta
         query_centroide = text("""
-            SELECT ST_Y(ST_Centroid(ST_Collect(geom))) as lat, 
+            SELECT ST_Y(ST_Centroid(ST_Collect(geom))) as lat,
                    ST_X(ST_Centroid(ST_Collect(geom))) as lng
-            FROM deteccion WHERE video_id = :v_id
+            FROM deteccion WHERE video_id = :v_id AND estado_auditoria != 'falso_positivo'
         """)
         centroide = db.execute(query_centroide, {"v_id": video_id}).fetchone()
-        
+
         lat = float(centroide[0]) if centroide and centroide[0] else 0.0
         lng = float(centroide[1]) if centroide and centroide[1] else 0.0
 
@@ -163,18 +178,18 @@ async def preguntar_a_video(
                         "type": "object",
                         "properties": {
                             "lat": {"type": "number", "description": "Latitud"},
-                            "lng": {"type": "number", "description": "Longitud"}
+                            "lng": {"type": "number", "description": "Longitud"},
                         },
-                        "required": ["lat", "lng"]
-                    }
-                }
+                        "required": ["lat", "lng"],
+                    },
+                },
             }
         ]
 
         # Prompt
         mensajes = [
             {
-                "role": "system", 
+                "role": "system",
                 "content": (
                     f"Sos un sistema de IA especializado ÚNICAMENTE en la inspección vial del video {video_id}.\n"
                     f"- Baches detectados: {cantidad}\n"
@@ -190,17 +205,22 @@ async def preguntar_a_video(
                     "IA: Lo siento, estoy diseñado exclusivamente para asistir en la inspección de baches y no puedo responder sobre otros temas.\n"
                     "User: ¿Dónde están los baches?\n"
                     "IA: [Usa la herramienta consultar_mapa_osm]"
-                )
+                ),
             },
-            {"role": "user", "content": request.pregunta}
+            {"role": "user", "content": request.pregunta},
         ]
 
         # El Agente decide si usa la herramienta o responde directo segun convenga
         async with httpx.AsyncClient() as client:
             respuesta_fase1 = await client.post(
                 f"{settings.OLLAMA_URL}/api/chat",
-                json={"model": "llama3.2:3b", "messages": mensajes, "tools": herramientas, "stream": False},
-                timeout=60.0
+                json={
+                    "model": "llama3.2:3b",
+                    "messages": mensajes,
+                    "tools": herramientas,
+                    "stream": False,
+                },
+                timeout=60.0,
             )
             respuesta_fase1.raise_for_status()
             mensaje_ia = respuesta_fase1.json().get("message", {})
@@ -208,9 +228,11 @@ async def preguntar_a_video(
             # Ejecución de la herramienta
             if "tool_calls" in mensaje_ia and mensaje_ia["tool_calls"]:
                 logger.info("El Agente decidió usar el mapa de OpenStreetMap en vivo.")
-                
-                argumentos_crudos = mensaje_ia["tool_calls"][0]["function"].get("arguments", {})
-                
+
+                argumentos_crudos = mensaje_ia["tool_calls"][0]["function"].get(
+                    "arguments", {}
+                )
+
                 if isinstance(argumentos_crudos, str):
                     try:
                         argumentos = json.loads(argumentos_crudos)
@@ -219,7 +241,7 @@ async def preguntar_a_video(
                         argumentos = {}
                 else:
                     argumentos = argumentos_crudos
-                
+
                 if not isinstance(argumentos, dict):
                     argumentos = {}
 
@@ -234,34 +256,42 @@ async def preguntar_a_video(
                 except (ValueError, TypeError):
                     logger.warning("La IA Usó las reales de la BD.")
                 # -----------------------------------------------------
-                
+
                 # Llamada real a geo_service
-                datos_osm = await obtener_contexto_geografico(arg_lat, arg_lng, radio_pois=400)
+                datos_osm = await obtener_contexto_geografico(
+                    arg_lat, arg_lng, radio_pois=400
+                )
                 logger.info(f"Datos obtenidos de OSM: {datos_osm}")
-                
+
                 mensajes.append(mensaje_ia)
-                mensajes.append({
-                    "role": "tool",
-                    "content": json.dumps(datos_osm)
-                })
+                mensajes.append({"role": "tool", "content": json.dumps(datos_osm)})
 
                 respuesta_fase2 = await client.post(
                     f"{settings.OLLAMA_URL}/api/chat",
-                    json={"model": "llama3.2:3b", "messages": mensajes, "stream": False},
-                    timeout=60.0
+                    json={
+                        "model": "llama3.2:3b",
+                        "messages": mensajes,
+                        "stream": False,
+                    },
+                    timeout=60.0,
                 )
                 respuesta_fase2.raise_for_status()
-                texto_final = respuesta_fase2.json().get("message", {}).get("content", "Error al procesar.")
-            
-            else:
-                logger.info("El Agente respondió directamente usando el reporte/contexto.")
-                texto_final = mensaje_ia.get("content", "Sin respuesta.")
+                texto_final = (
+                    respuesta_fase2.json()
+                    .get("message", {})
+                    .get("content", "Error al procesar.")
+                )
 
+            else:
+                logger.info(
+                    "El Agente respondió directamente usando el reporte/contexto."
+                )
+                texto_final = mensaje_ia.get("content", "Sin respuesta.")
 
         return {
             "video_id": video_id,
             "pregunta": request.pregunta,
-            "respuesta": texto_final
+            "respuesta": texto_final,
         }
 
     except Exception as e:
@@ -269,4 +299,6 @@ async def preguntar_a_video(
         logger.error(str(e))
         logger.error(traceback.format_exc())
         logger.error("==========================")
-        raise HTTPException(status_code=500, detail="Error en la Inteligencia Artificial.")
+        raise HTTPException(
+            status_code=500, detail="Error en la Inteligencia Artificial."
+        )

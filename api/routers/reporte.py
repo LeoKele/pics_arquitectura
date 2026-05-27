@@ -49,7 +49,7 @@ async def generar_reporte(
             puntos = db.execute(
                 text("""
                 SELECT ST_Y(geom) as lat, ST_X(geom) as lng
-                FROM deteccion WHERE video_id = :v_id
+                FROM deteccion WHERE video_id = :v_id AND estado_auditoria != 'falso_positivo'
                 ORDER BY fecha_deteccion ASC
             """),
                 {"v_id": v.id},
@@ -76,7 +76,7 @@ async def generar_reporte(
                 SELECT tipo_dano, confianza, geom,
                        ST_ClusterDBSCAN(geom, 0.00005, 1)
                        OVER(PARTITION BY tipo_dano) as cluster_id
-                FROM deteccion WHERE video_id IN :ids
+                FROM deteccion WHERE video_id IN :ids AND estado_auditoria != 'falso_positivo'
             )
             SELECT
                 tipo_dano,

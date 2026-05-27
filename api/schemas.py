@@ -33,6 +33,7 @@ class DeteccionResponse(BaseModel):
     geometria: Dict[str, Any]
     fecha: datetime
     frame_minio_path: Optional[str] = None
+    bbox: Optional[Dict[str, Any]] = None
     estado_auditoria: str
 
     class Config:

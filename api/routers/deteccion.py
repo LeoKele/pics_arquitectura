@@ -17,16 +17,21 @@ logger = logging.getLogger("api.deteccion")
 def obtener_detecciones(db: Session = Depends(get_db)):
     logger.info("Consultando todas las detecciones")
 
-    detecciones = db.query(
-        models.Deteccion.id,
-        models.Deteccion.video_id,
-        models.Deteccion.tipo_dano,
-        models.Deteccion.confianza,
-        ST_AsGeoJSON(models.Deteccion.geom).label("geometria"),
-        models.Deteccion.fecha_deteccion,
-        models.Deteccion.frame_minio_path,
-        models.Deteccion.estado_auditoria,
-    ).all()
+    detecciones = (
+        db.query(
+            models.Deteccion.id,
+            models.Deteccion.video_id,
+            models.Deteccion.tipo_dano,
+            models.Deteccion.confianza,
+            ST_AsGeoJSON(models.Deteccion.geom).label("geometria"),
+            models.Deteccion.fecha_deteccion,
+            models.Deteccion.frame_minio_path,
+            models.Deteccion.bbox,
+            models.Deteccion.estado_auditoria,
+        )
+        .filter(models.Deteccion.estado_auditoria != "falso_positivo")
+        .all()
+    )
 
     resultado = []
     for d in detecciones:
@@ -39,6 +44,7 @@ def obtener_detecciones(db: Session = Depends(get_db)):
                 "geometria": json.loads(d.geometria),
                 "fecha": d.fecha_deteccion,
                 "frame_minio_path": d.frame_minio_path,
+                "bbox": d.bbox,
                 "estado_auditoria": d.estado_auditoria,
             }
         )
@@ -59,7 +65,7 @@ def obtener_detecciones_agrupadas(video_id: int, db: Session = Depends(get_db)):
                 OVER(PARTITION BY tipo_dano) as cluster_id,
                 geom
             FROM deteccion
-            WHERE video_id = :video_id
+            WHERE video_id = :video_id AND estado_auditoria != 'falso_positivo'
         )
         SELECT
             tipo_dano,
@@ -105,6 +111,36 @@ def auditar_deteccion(
         raise HTTPException(status_code=404, detail="Detección no encontrada")
 
     deteccion.estado_auditoria = nuevo_estado
+
+    if nuevo_estado.lower() == "falso_positivo":
+        if deteccion.frame_minio_path:
+            try:
+                from dependencias import minio_client
+                from minio.commonconfig import CopySource
+
+                reentrenamiento_bucket = "backgrounds-reentrenamiento"
+                # Asegurar que el bucket de reentrenamiento exista
+                if not minio_client.bucket_exists(reentrenamiento_bucket):
+                    minio_client.make_bucket(reentrenamiento_bucket)
+
+                # Copiar objeto limpio al bucket de reentrenamiento
+                source = CopySource("detecciones", deteccion.frame_minio_path)
+                minio_client.copy_object(
+                    reentrenamiento_bucket, deteccion.frame_minio_path, source
+                )
+                logger.info(
+                    f"Imagen limpia copiada a {reentrenamiento_bucket}/{deteccion.frame_minio_path}"
+                )
+
+                # Borrar la imagen del bucket activo de detecciones
+                minio_client.remove_object("detecciones", deteccion.frame_minio_path)
+                logger.info(
+                    f"Imagen activa eliminada de detecciones: {deteccion.frame_minio_path}"
+                )
+            except Exception as e:
+                logger.error(
+                    f"Error al mover la imagen limpia a backgrounds-reentrenamiento: {e}"
+                )
 
     db.commit()
     db.refresh(deteccion)

@@ -13,6 +13,7 @@ from geoalchemy2.shape import from_shape
 from minio import Minio
 from shapely.geometry import Point
 from sqlalchemy import (
+    JSON,
     Column,
     DateTime,
     Float,
@@ -65,6 +66,7 @@ class Deteccion(Base):
     tipo_dano = Column(String)
     confianza = Column(Float)
     frame_minio_path = Column(String, nullable=True)
+    bbox = Column(JSON, nullable=True)
     estado_auditoria = Column(String, default="pendiente")
     fecha_deteccion = Column(DateTime, default=datetime.utcnow)
 
@@ -93,24 +95,16 @@ def obtener_coordenada(datos_gps, tiempo_ms):
     return punto_mas_cercano["lat"], punto_mas_cercano["lng"]
 
 
-def guardar_y_subir_imagen(
-    frame_original, box, clase_id, nombre_clase, confianza, video_id, tiempo_ms, j
-):
+def guardar_y_subir_imagen(frame_original, video_id, tiempo_ms, j):
     # 1. Anonimizar el frame original
     frame_anonimo = anonimizar_frame(frame_original)
 
-    # 2. Dibujar la caja del bache sobre el frame anonimizado
-    annotator = Annotator(frame_anonimo, line_width=2)
-    etiqueta = f"{nombre_clase} {confianza:.2f}"
-    annotator.box_label(box.xyxy[0], etiqueta, color=colors(clase_id, True))
-    frame_con_caja = annotator.result()
-
-    # 3. Guardar localmente
+    # 2. Guardar localmente
     nombre_det = f"bache_{tiempo_ms}_box{j}.jpg"
     ruta_det_local = f"/tmp/{nombre_det}"
-    cv2.imwrite(ruta_det_local, frame_con_caja)
+    cv2.imwrite(ruta_det_local, frame_anonimo)
 
-    # 4. Subir a MinIO
+    # 3. Subir a MinIO (versión limpia anonimizada)
     ruta_minio_deteccion = f"video_{video_id}/{nombre_det}"
     minio_client.fput_object(
         "detecciones",
@@ -161,7 +155,7 @@ while True:
                 logger.info(f"Éxito: Se cargaron {len(datos_gps)} puntos de GPS.")
             except Exception as e:
                 logger.warning(
-                    f"""No se encontró/leyó el JSON. Se usará coordenada por defecto. 
+                    f"""No se encontró/leyó el JSON. Se usará coordenada por defecto.
                     Detalles: {e}"""
                 )
 
@@ -313,13 +307,13 @@ while True:
                                             f"No se pudo borrar foto vieja de MinIO: {e}"
                                         )
 
-                                # Guardar y subir imagen anonimizada y anotada
+                                # Extraer coordenadas de la caja
+                                x1, y1, x2, y2 = map(int, box.xyxy[0])
+                                bbox_dict = {"x1": x1, "y1": y1, "x2": x2, "y2": y2}
+
+                                # Guardar y subir imagen anonimizada y limpia
                                 ruta_minio_deteccion = guardar_y_subir_imagen(
                                     frame,
-                                    box,
-                                    clase_id,
-                                    nombre_clase,
-                                    confianza,
                                     video_id,
                                     tiempo_ms,
                                     j,
@@ -328,6 +322,7 @@ while True:
                                 # Actualizar BD
                                 duplicado.confianza = confianza
                                 duplicado.frame_minio_path = ruta_minio_deteccion
+                                duplicado.bbox = bbox_dict
                                 duplicado.geom = from_shape(Point(lng, lat), srid=4326)
                                 db.commit()
                             continue
@@ -338,13 +333,13 @@ while True:
                             f"NUEVO bache detectado: {nombre_clase} ({id_log}, Conf: {confianza:.2f})"
                         )
 
-                        # Guardar y subir imagen anonimizada y anotada
+                        # Extraer coordenadas de la caja
+                        x1, y1, x2, y2 = map(int, box.xyxy[0])
+                        bbox_dict = {"x1": x1, "y1": y1, "x2": x2, "y2": y2}
+
+                        # Guardar y subir imagen anonimizada y limpia
                         ruta_minio_deteccion = guardar_y_subir_imagen(
                             frame,
-                            box,
-                            clase_id,
-                            nombre_clase,
-                            confianza,
                             video_id,
                             tiempo_ms,
                             j,
@@ -356,6 +351,7 @@ while True:
                             tipo_dano=nombre_clase,
                             confianza=confianza,
                             frame_minio_path=ruta_minio_deteccion,
+                            bbox=bbox_dict,
                             estado_auditoria="pendiente",
                         )
                         db.add(nueva_deteccion)
