@@ -154,3 +154,22 @@ def auditar_deteccion(
         "id": deteccion.id,
         "estado_actual": deteccion.estado_auditoria,
     }
+
+
+@router.get("/api/v1/trayectorias")
+def obtener_trayectorias(db: Session = Depends(get_db)):
+    # Buscamos todos los puntos y los ordenamos por tiempo usando models.Telemetria
+    puntos = db.query(models.Telemetria).order_by(models.Telemetria.video_id, models.Telemetria.tiempo).all()
+    
+    trayectorias = {}
+    for p in puntos:
+        if p.video_id not in trayectorias:
+            trayectorias[p.video_id] = []
+            
+        # Extraemos lat y lon de PostGIS
+        lon = db.scalar(p.geometria.ST_X())
+        lat = db.scalar(p.geometria.ST_Y())
+        
+        trayectorias[p.video_id].append([lat, lon])
+        
+    return trayectorias # Devuelve {"video_1": [[lat, lon], [lat, lon]...]}

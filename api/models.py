@@ -40,3 +40,14 @@ class ReporteVideo(Base):
     id = Column(Integer, primary_key=True)
     video_id = Column(Integer, ForeignKey("video.id"), nullable=True)
     reporte_id = Column(Integer, ForeignKey("reporte.id"), nullable=True)
+
+
+class Telemetria(Base):
+    __tablename__ = "telemetria"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    video_id = Column(String, index=True)
+    tiempo = Column(Float) # O DateTime, el timestamp del GPS
+    
+    # PostGIS Point para guardar la coordenada exacta
+    geometria = Column(Geometry('POINT', srid=4326))

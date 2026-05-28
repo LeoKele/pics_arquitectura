@@ -71,6 +71,15 @@ class Deteccion(Base):
     fecha_deteccion = Column(DateTime, default=datetime.utcnow)
 
 
+# --- NUEVO MODELO DE TELEMETRÍA CORREGIDO ---
+class Telemetria(Base):
+    __tablename__ = "telemetria"
+    id = Column(Integer, primary_key=True)
+    video_id = Column(Integer, ForeignKey("video.id"))
+    tiempo = Column(Float)
+    geometria = Column(Geometry("POINT", srid=4326)) # ¡Corregido de 'geom' a 'geometria'!
+
+
 # CARGAR EL MODELO YOLO
 logger.info("Cargando modelo YOLO en memoria...")
 modelo_yolo = YOLO("best.pt")
@@ -87,24 +96,18 @@ except Exception as e:
 # Función para buscar la coordenada correcta
 def obtener_coordenada(datos_gps, tiempo_ms):
     if not datos_gps:
-        # Si no hay JSON, devolvemos la falsa por defecto para que no explote
-        return -34.65, -58.79  # Se puede cambiar a 0.0
+        return -34.65, -58.79  
 
-    # Busca en la lista el GPS cuyo "elapsed_ms" esté más cerca del tiempo del video
     punto_mas_cercano = min(datos_gps, key=lambda x: abs(x["elapsed_ms"] - tiempo_ms))
     return punto_mas_cercano["lat"], punto_mas_cercano["lng"]
 
 
 def guardar_y_subir_imagen(frame_original, video_id, tiempo_ms, j):
-    # 1. Anonimizar el frame original
     frame_anonimo = anonimizar_frame(frame_original)
-
-    # 2. Guardar localmente
     nombre_det = f"bache_{tiempo_ms}_box{j}.jpg"
     ruta_det_local = f"/tmp/{nombre_det}"
     cv2.imwrite(ruta_det_local, frame_anonimo)
 
-    # 3. Subir a MinIO (versión limpia anonimizada)
     ruta_minio_deteccion = f"video_{video_id}/{nombre_det}"
     minio_client.fput_object(
         "detecciones",
@@ -113,7 +116,6 @@ def guardar_y_subir_imagen(frame_original, video_id, tiempo_ms, j):
         content_type="image/jpeg",
     )
 
-    # Limpiar archivo local
     if os.path.exists(ruta_det_local):
         os.remove(ruta_det_local)
 
@@ -139,9 +141,7 @@ while True:
             db.commit()
 
             # 1. DESCARGAR EL JSON DE COORDENADAS
-            nombre_base = video.nombre_archivo.replace("procesado_", "").rsplit(".", 1)[
-                0
-            ]
+            nombre_base = video.nombre_archivo.replace("procesado_", "").rsplit(".", 1)[0]
             nombre_json = f"{nombre_base}.json"
             ruta_json_local = f"/tmp/{nombre_json}"
 
@@ -153,6 +153,25 @@ while True:
                     json_completo = json.load(f)
                     datos_gps = json_completo.get("data", [])
                 logger.info(f"Éxito: Se cargaron {len(datos_gps)} puntos de GPS.")
+
+                # --- GUARDAR TODA LA TELEMETRÍA ---
+                logger.info(f"Guardando la trayectoria completa ({len(datos_gps)} puntos) en PostgreSQL...")
+                for punto in datos_gps:
+                    lat = punto.get("lat")
+                    lng = punto.get("lng")
+                    tiempo_ms = punto.get("elapsed_ms", 0.0)
+                    
+                    if lat is not None and lng is not None:
+                        nueva_telemetria = Telemetria(
+                            video_id=video_id,
+                            tiempo=float(tiempo_ms),
+                            geometria=from_shape(Point(lng, lat), srid=4326) # ¡Corregido acá también!
+                        )
+                        db.add(nueva_telemetria)
+                db.commit()
+                logger.info("Trayectoria guardada en BD con éxito.")
+                # --------------------------------------------------------------
+
             except Exception as e:
                 logger.warning(
                     f"""No se encontró/leyó el JSON. Se usará coordenada por defecto.
@@ -160,7 +179,6 @@ while True:
                 )
 
             # 2. PROCESAR FRAMES INDIVIDUALES CON YOLO
-            # Asegurar que exista el bucket final de detecciones
             if not minio_client.bucket_exists("detecciones"):
                 minio_client.make_bucket("detecciones")
 
@@ -179,11 +197,10 @@ while True:
                     return 0
 
             objetos_frames.sort(key=extraer_tiempo)
-            # ----------------------------------------------
-
+            
             baches_detectados = 0
-            diccionario_tracks = {}  # Memoria: track_id (YOLO) -> id (PostgreSQL)
-            ids_procesados = set()  # Memoria de baches ya guardados en este video
+            diccionario_tracks = {}  
+            ids_procesados = set()  
 
             total_frames = len(objetos_frames)
             logger.info(f"Procesando {total_frames} frames...")
@@ -191,25 +208,19 @@ while True:
             for i, obj in enumerate(objetos_frames):
                 nombre_archivo_minio = obj.object_name
 
-                # Log de progreso cada 5 frames
                 if i % 5 == 0:
-                    logger.info(
-                        f"Progreso: Frame {i}/{total_frames} ({obj.object_name})"
-                    )
+                    logger.info(f"Progreso: Frame {i}/{total_frames} ({obj.object_name})")
 
-                # Extraer el milisegundo del nombre del archivo
                 try:
                     tiempo_ms = int(nombre_archivo_minio.split("_")[-1].split(".")[0])
                 except ValueError:
                     continue
 
-                # Descargar frame temporalmente
                 ruta_local_frame = f"/tmp/frame_{tiempo_ms}.jpg"
                 minio_client.fget_object(
                     "frames-procesados", nombre_archivo_minio, ruta_local_frame
                 )
 
-                # Inferencia con YOLO
                 frame = cv2.imread(ruta_local_frame)
                 resultados = modelo_yolo.track(
                     frame,
@@ -220,7 +231,6 @@ while True:
                     verbose=False,
                 )[0]
 
-                # Extraemos los IDs que le asignó ByteTrack a cada caja
                 if resultados.boxes.id is not None:
                     track_ids = resultados.boxes.id.int().cpu().tolist()
                 else:
@@ -232,48 +242,30 @@ while True:
                     nombre_clase = modelo_yolo.names[clase_id]
 
                     if confianza > 0.30:
-                        # --- 0. FILTRO DE HORIZONTE (50%) ---
-                        # Evitar detectar árboles, cables o cielo como baches.
-                        # El bache debe estar en la carretera (parte inferior).
                         y_centro = float(box.xywh[0][1])
                         alto_imagen = frame.shape[0]
                         if y_centro < (alto_imagen * 0.50):
-                            logger.info(
-                                f"Omitiendo {nombre_clase} por estar en el horizonte (posible árbol/cielo)"
-                            )
+                            logger.info(f"Omitiendo {nombre_clase} por estar en el horizonte")
                             continue
 
-                        # Log descriptivo del ID (visual tracking ID)
-                        id_log = (
-                            f"ID:{track_id}" if track_id is not None else "ID:NUEVO"
-                        )
+                        id_log = f"ID:{track_id}" if track_id is not None else "ID:NUEVO"
 
-                        # --- 2. VERIFICACIÓN GEOGRÁFICA (Deduplicación y Mejora) ---
                         lat, lng = obtener_coordenada(datos_gps, tiempo_ms)
                         punto_wkt = f"SRID=4326;POINT({lng} {lat})"
 
-                        # Definir umbral de distancia dinámico (en grados aproximados)
-                        # 0.00001 ~= 1.1 metros
                         distancias_map = {
-                            "d40": 0.00003,  # Bache/Pozo (3m)
-                            "d20": 0.00010,  # Piel de cocodrilo/Grietas (10m)
-                            "calle_tierra": 0.00030,  # Calle de tierra (30m)
+                            "d40": 0.00003,  
+                            "d20": 0.00010,  
+                            "calle_tierra": 0.00030,  
                         }
-                        # Buscamos el umbral según la clase, por defecto 3m
                         umbral = distancias_map.get(nombre_clase.lower(), 0.00003)
 
                         duplicado = None
 
-                        # A) Búsqueda por Inteligencia Artificial (Prioridad 1)
                         if track_id is not None and track_id in diccionario_tracks:
                             id_bd = diccionario_tracks[track_id]
-                            duplicado = (
-                                db.query(Deteccion)
-                                .filter(Deteccion.id == id_bd)
-                                .first()
-                            )
+                            duplicado = db.query(Deteccion).filter(Deteccion.id == id_bd).first()
 
-                        # B) Búsqueda Geográfica (Prioridad 2)
                         if not duplicado:
                             duplicado = (
                                 db.query(Deteccion)
@@ -285,41 +277,23 @@ while True:
                                 .first()
                             )
 
-                            # Si lo encontró por GPS, lo "atamos" a este track_id para los próximos frames
                             if duplicado and track_id is not None:
                                 diccionario_tracks[track_id] = duplicado.id
 
-                        # --- ACTUALIZAR SI ES DUPLICADO ---
                         if duplicado:
                             if confianza > duplicado.confianza:
-                                logger.info(
-                                    f"Actualizando {nombre_clase} ({id_log}): {duplicado.confianza:.2f} -> {confianza:.2f}"
-                                )
-
-                                # Borrar la foto vieja de MinIO
+                                logger.info(f"Actualizando {nombre_clase} ({id_log}): {duplicado.confianza:.2f} -> {confianza:.2f}")
                                 if duplicado.frame_minio_path:
                                     try:
-                                        minio_client.remove_object(
-                                            "detecciones", duplicado.frame_minio_path
-                                        )
+                                        minio_client.remove_object("detecciones", duplicado.frame_minio_path)
                                     except Exception as e:
-                                        logger.warning(
-                                            f"No se pudo borrar foto vieja de MinIO: {e}"
-                                        )
+                                        pass
 
-                                # Extraer coordenadas de la caja
                                 x1, y1, x2, y2 = map(int, box.xyxy[0])
                                 bbox_dict = {"x1": x1, "y1": y1, "x2": x2, "y2": y2}
 
-                                # Guardar y subir imagen anonimizada y limpia
-                                ruta_minio_deteccion = guardar_y_subir_imagen(
-                                    frame,
-                                    video_id,
-                                    tiempo_ms,
-                                    j,
-                                )
+                                ruta_minio_deteccion = guardar_y_subir_imagen(frame, video_id, tiempo_ms, j)
 
-                                # Actualizar BD
                                 duplicado.confianza = confianza
                                 duplicado.frame_minio_path = ruta_minio_deteccion
                                 duplicado.bbox = bbox_dict
@@ -327,23 +301,13 @@ while True:
                                 db.commit()
                             continue
 
-                        # --- CREAR SI ES NUEVO ---
                         baches_detectados += 1
-                        logger.info(
-                            f"NUEVO bache detectado: {nombre_clase} ({id_log}, Conf: {confianza:.2f})"
-                        )
+                        logger.info(f"NUEVO bache detectado: {nombre_clase} ({id_log}, Conf: {confianza:.2f})")
 
-                        # Extraer coordenadas de la caja
                         x1, y1, x2, y2 = map(int, box.xyxy[0])
                         bbox_dict = {"x1": x1, "y1": y1, "x2": x2, "y2": y2}
 
-                        # Guardar y subir imagen anonimizada y limpia
-                        ruta_minio_deteccion = guardar_y_subir_imagen(
-                            frame,
-                            video_id,
-                            tiempo_ms,
-                            j,
-                        )
+                        ruta_minio_deteccion = guardar_y_subir_imagen(frame, video_id, tiempo_ms, j)
 
                         nueva_deteccion = Deteccion(
                             video_id=video_id,
@@ -356,11 +320,8 @@ while True:
                         )
                         db.add(nueva_deteccion)
                         db.commit()
-
-                        # Actualizar la base de datos para obtener el ID real (1, 2, 3...)
                         db.refresh(nueva_deteccion)
 
-                        # Guardar la relación "ID de YOLO -> ID de Postgres"
                         if track_id is not None:
                             diccionario_tracks[track_id] = nueva_deteccion.id
 
