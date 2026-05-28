@@ -1,0 +1,7 @@
+FROM nginx:alpine
+# Borramos la página por defecto de Nginx
+RUN rm -rf /usr/share/nginx/html/*
+# Copiamos nuestro Dashboard
+COPY dashboard.html /usr/share/nginx/html/index.html
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]

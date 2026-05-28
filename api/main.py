@@ -4,6 +4,7 @@ import time
 import models
 from database import engine
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from routers import deteccion, reporte, sistema, video
 
 # Logging
@@ -33,3 +34,11 @@ app.include_router(sistema.router)
 app.include_router(video.router)
 app.include_router(deteccion.router)
 app.include_router(reporte.router)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Permite que cualquier frontend se conecte (ideal para local)
+    allow_credentials=True,
+    allow_methods=["*"],  # Permite POST, GET, PUT, etc.
+    allow_headers=["*"],
+)
