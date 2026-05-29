@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel
 
@@ -38,3 +38,38 @@ class DeteccionResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# Esquemas para Multipart Upload (Direct-to-MinIO)
+class UploadIniciarRequest(BaseModel):
+    nombre_archivo: str
+    nombre_metadata: Optional[str] = None
+    gps_metadata: Dict[str, Any]
+
+
+class UploadIniciarResponse(BaseModel):
+    video_id: int
+    upload_id: str
+    key: str
+
+
+class UploadFirmaRequest(BaseModel):
+    upload_id: str
+    key: str
+    part_numbers: List[int]
+
+
+class UploadFirmaResponse(BaseModel):
+    urls: Dict[int, str]
+
+
+class PartETagSchema(BaseModel):
+    PartNumber: int
+    ETag: str
+
+
+class UploadFinalizarRequest(BaseModel):
+    video_id: int
+    upload_id: str
+    key: str
+    partes: List[PartETagSchema]

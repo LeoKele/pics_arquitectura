@@ -4,6 +4,7 @@ import time
 import models
 from database import engine
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from routers import deteccion, reporte, sistema, video
 
 # Logging
@@ -27,6 +28,15 @@ else:
     raise SystemExit(1)
 
 app = FastAPI(title="Mapeo Vial Moreno", version="1.1.4")
+
+# Configuración de CORS para permitir solicitudes desde cualquier origen (como Netlify)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Registro de routers
 app.include_router(sistema.router)
