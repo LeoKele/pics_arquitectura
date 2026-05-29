@@ -143,11 +143,3 @@ El sistema utiliza **llama3.2:3b** ejecutándose localmente. Esto garantiza la p
 7. **Anonimización Automática (Rostros y Patentes):** El sistema difumina de forma automática los rostros de peatones y patentes de vehículos en las imágenes finales asociadas a daños viales. Corre de forma secuencial dos modelos YOLO especializados ([`yolov8s-face-lindevs.pt`](https://github.com/lindevs/yolov8-face) y [`license-plate-finetune-v1s.pt`](https://github.com/morsetechlab/Yolov11-License-Plate-Detection/tree/main)) sobre los frames seleccionados antes de dibujar las anotaciones del bache y subirse a MinIO, asegurando privacidad y cumplimiento de normativas de datos sin ralentizar el pipeline de inferencia principal.
 
 8. **Human-in-the-Loop (Auditoría de Detecciones):** Flujo de revisión manual que permite auditar las detecciones del sistema. Si una detección es catalogada como falso positivo, esta se descarta automáticamente de los reportes y consultas dinámicas, y la imagen original sin anotaciones se transfiere a un bucket de reentrenamiento (`backgrounds-reentrenamiento`) en MinIO para mejorar la precisión del modelo en futuras iteraciones.
-
-
-docker exec -it daf5aa644322 mc alias set miconexion http://localhost:9000 postgres postgres
-
-docker exec -it daf5aa644322 mc anonymous set download miconexion/detecciones
-
-
-LOCALHOST:8080 FRONTEND
