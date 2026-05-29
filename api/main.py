@@ -14,7 +14,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger("api")
 
-# Crea las tablas si no existen
 for intento in range(10):
     try:
         models.Base.metadata.create_all(bind=engine)
@@ -29,7 +28,6 @@ else:
 
 app = FastAPI(title="Mapeo Vial Moreno", version="1.1.4")
 
-# Registro de routers
 app.include_router(sistema.router)
 app.include_router(video.router)
 app.include_router(deteccion.router)
@@ -37,8 +35,8 @@ app.include_router(reporte.router)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Permite que cualquier frontend se conecte (ideal para local)
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["*"],  # Permite POST, GET, PUT, etc.
+    allow_methods=["*"],
     allow_headers=["*"],
 )

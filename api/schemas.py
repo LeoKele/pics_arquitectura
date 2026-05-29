@@ -4,7 +4,6 @@ from typing import Any, Dict, Optional
 from pydantic import BaseModel
 
 
-# Esquemas para Videos
 class VideoBase(BaseModel):
     nombre_archivo: str
     nombre_metadata: str
@@ -24,7 +23,6 @@ class VideoStatusResponse(BaseModel):
     estado: str
 
 
-# Esquemas para Detecciones
 class DeteccionResponse(BaseModel):
     id: int
     video_id: int

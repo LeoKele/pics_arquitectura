@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Mapeo Vial Moreno - Dashboard</title>
-  
+  <title>Mapeo Vial Moreno</title>
+
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-  
+
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #000000; color: #e0e0e0; height: 100vh; overflow: hidden; }
@@ -25,7 +25,7 @@
       --bordes: #222222;
     }
 
-    /* --- PANTALLA DE LOGIN --- */
+    /*  PANTALLA DE LOGIN  */
     #login-screen { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #000; z-index: 9999; display: flex; flex-direction: column; justify-content: center; align-items: center; }
     .login-box { background: var(--fondo-paneles); padding: 40px; border-radius: 12px; border: 1px solid var(--color-primario); width: 350px; text-align: center; box-shadow: 0 10px 30px rgba(0, 170, 255, 0.15); }
     .login-box h2 { color: var(--color-primario); margin-bottom: 20px; font-size: 1.5rem; }
@@ -35,7 +35,7 @@
     .login-btn:hover { background: var(--color-hover); }
     .login-error { color: var(--color-peligro); font-size: 0.85rem; margin-top: 10px; display: none; }
 
-    /* --- SEMÁFORO Y GRAFANA --- */
+    /*  SEMÁFORO Y GRAFANA  */
     .health-status-container { position: relative; display: inline-block; }
     .health-status { display: flex; align-items: center; gap: 8px; background: #1a1a1a; padding: 6px 12px; border-radius: 20px; border: 1px solid var(--bordes); font-size: 0.85rem; font-weight: bold; cursor: pointer; transition: 0.2s;}
     .health-status:hover { background: #222; }
@@ -43,7 +43,7 @@
     .dot-verde { background: #3dff7a; box-shadow: 0 0 8px #3dff7a; }
     .dot-amarillo { background: #ffcc00; box-shadow: 0 0 8px #ffcc00; }
     .dot-rojo { background: #ff3d3d; box-shadow: 0 0 8px #ff3d3d; }
-    
+
     .btn-grafana { background: #1a1a1a; color: #ff9900; border: 1px solid #ff9900; padding: 6px 12px; border-radius: 20px; font-size: 0.85rem; font-weight: bold; cursor: pointer; transition: 0.2s; display: flex; align-items: center; gap: 8px; text-decoration: none;}
     .btn-grafana:hover { background: #ff9900; color: #000; }
 
@@ -57,7 +57,7 @@
     .btn-logout { background: transparent; border: none; color: #888; cursor: pointer; margin-left: 10px; transition: 0.2s; }
     .btn-logout:hover { color: var(--color-peligro); }
 
-    /* --- RESTO DEL DASHBOARD --- */
+
     #dashboard-content { display: none; height: 100vh; flex-direction: column; }
     header { background: var(--fondo-paneles); padding: 12px 24px; display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid var(--color-primario); height: 60px; }
     header h1 { font-size: 1.2rem; color: #fff; display: flex; align-items: center; gap: 10px; }
@@ -71,7 +71,7 @@
     .inspeccion-item { background: var(--fondo-secundario); border-radius: 8px; padding: 10px; border-left: 3px solid transparent; border: 1px solid var(--bordes); transition: 0.2s; cursor: pointer; font-size: 0.85rem;}
     .inspeccion-item:hover { border-left-color: var(--color-primario); background: #1a1a1a; }
     .status-badge { font-size: 0.7rem; padding: 2px 6px; border-radius: 10px; display: inline-block; margin-top: 4px; font-weight: bold; background: #003366; color: #66ccff; }
-    
+
     .btn-reporte { background: var(--color-primario); color: #fff; padding: 12px; border-radius: 8px; text-align: center; font-weight: bold; display: block; margin-top: auto; border: none; cursor: pointer; transition: 0.2s;}
     .btn-reporte:hover { background: var(--color-hover); }
     .btn-reporte:disabled { background: #333; color: #666; cursor: not-allowed; }
@@ -83,7 +83,7 @@
     .panel { background: var(--fondo-paneles); border-radius: 12px; border: 1px solid var(--bordes); display: flex; flex-direction: column; overflow: hidden; }
     .panel-header { padding: 10px 16px; background: var(--fondo-secundario); border-bottom: 1px solid var(--bordes); font-weight: bold; font-size: 0.9rem; color: var(--color-primario); display: flex; justify-content: space-between; align-items: center; }
     .panel-body { flex: 1; padding: 16px; overflow-y: auto; }
-    
+
     #panel-mapa { grid-column: 1 / 2; grid-row: 1 / 2; padding: 0; position: relative;}
     #map { width: 100%; height: 100%; background: var(--fondo-paneles); z-index: 1;}
     .leaflet-popup-content-wrapper { background: var(--fondo-paneles); color: #eee; border: 1px solid var(--color-primario); border-radius: 8px; }
@@ -107,14 +107,14 @@
 
     .model-badge { background: #1a1a1a; color: #888; font-size: 0.65rem; padding: 2px 6px; border-radius: 4px; border: 1px solid #333; }
     .bbox-overlay { transition: background 0.2s; }
-    
+
     .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 2000; justify-content: center; align-items: center; backdrop-filter: blur(4px); }
     .modal-content { background: var(--fondo-paneles); border: 1px solid var(--color-primario); border-radius: 12px; width: 60%; max-width: 800px; max-height: 80vh; display: flex; flex-direction: column; box-shadow: 0 10px 30px rgba(0, 170, 255, 0.1); }
     .modal-header { padding: 16px 24px; border-bottom: 1px solid var(--bordes); display: flex; justify-content: space-between; align-items: center; background: var(--fondo-secundario); border-radius: 12px 12px 0 0; }
     .modal-header h2 { font-size: 1.2rem; color: var(--color-primario); display: flex; align-items: center; gap: 8px;}
     .close-btn { background: none; border: none; color: var(--color-peligro); font-size: 1.8rem; cursor: pointer; line-height: 1; }
     .modal-body { padding: 30px; overflow-y: auto; color: #e0e0e0; font-size: 0.95rem; line-height: 1.6; }
-    
+
     .reporte-texto h1, .reporte-texto h2, .reporte-texto h3 { color: var(--color-primario); margin-top: 20px; margin-bottom: 10px; }
     .reporte-texto h1 { font-size: 1.5rem; border-bottom: 1px solid #333; padding-bottom: 5px; }
     .reporte-texto h2 { font-size: 1.2rem; }
@@ -122,8 +122,16 @@
     .reporte-texto ul, .reporte-texto ol { margin-left: 24px; margin-bottom: 14px; }
     .reporte-texto li { margin-bottom: 6px; }
     .reporte-texto strong { color: #fff; font-weight: 600; }
+
+    /* BOTONES PDF Y AUDITORIA */
     .btn-ficha-pdf { background: #1a1a1a; color: #fff; border: 1px solid var(--color-primario); padding: 10px; border-radius: 8px; font-weight: bold; cursor: pointer; width: 100%; margin-top: 15px; transition: 0.2s;}
     .btn-ficha-pdf:hover { background: var(--color-primario); color: #000; }
+
+    .btn-auditoria { flex: 1; padding: 10px; border-radius: 8px; font-weight: bold; cursor: pointer; border: none; transition: 0.2s; color: #fff; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 0.85rem;}
+    .btn-verificado { background: #198754; border: 1px solid #198754; }
+    .btn-verificado:hover { background: #157347; }
+    .btn-falso { background: #dc3545; border: 1px solid #dc3545; }
+    .btn-falso:hover { background: #bb2d3b; }
   </style>
 </head>
 <body>
@@ -135,7 +143,7 @@
     <input type="password" id="login-pass" class="login-input" placeholder="Contraseña" onkeypress="if(event.key === 'Enter') procesarLogin()">
     <button class="login-btn" onclick="procesarLogin()">Ingresar</button>
     <div id="login-error" class="login-error"><i class="fa-solid fa-triangle-exclamation"></i> Usuario o contraseña incorrectos.</div>
-    
+
     <div style="margin-top: 20px; font-size: 0.75rem; color: #555;">
       Credenciales de prueba:<br>
       Admin: admin / admin<br>
@@ -147,9 +155,9 @@
 <div id="dashboard-content">
   <header>
     <h1><i class="fa-solid fa-map-location-dot"></i> Mapeo Vial Moreno</h1>
-    
+
     <div style="display: flex; gap: 16px; align-items: center;">
-      
+
       <button id="btn-grafana" class="btn-grafana" style="display: none;" onclick="abrirLogsGrafana()" title="Ver Logs en Vivo (Backend)">
         <i class="fa-solid fa-terminal"></i> Ver Logs
       </button>
@@ -160,7 +168,7 @@
           <span id="health-text">Verificando...</span>
           <i class="fa-solid fa-chevron-down" style="font-size: 0.7rem; margin-left: 4px; color: #888;"></i>
         </div>
-        
+
         <div class="health-dropdown" id="health-dropdown-content">
           <div style="text-align: center; color: #666; font-size: 0.8rem;">Cargando servicios...</div>
         </div>
@@ -249,16 +257,16 @@
 
 <script>
   const API_URL = 'http://localhost:8000';
-  const NOMBRE_BUCKET = "detecciones"; 
+  const NOMBRE_BUCKET = "detecciones";
   let videoSeleccionadoActualmente = null;
-  const MARGEN_EXTRA = 4; 
+  const MARGEN_EXTRA = 4;
   let intervaloHealth = null;
   let intervaloDatos = null;
 
   // Inicialización del Mapa
   const map = L.map('map').setView([-34.6441, -58.7894], 14);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap contributors', maxZoom: 19 }).addTo(map);
-  
+
   const iconoBache = L.divIcon({
     className: '',
     html: `<div style="width: 16px; height: 16px; background: #ff3d3d; border: 2px solid white; border-radius: 50%; box-shadow: 0 0 8px rgba(255,61,61,0.9);"></div>`,
@@ -267,7 +275,7 @@
   });
 
   let marcadores = L.layerGroup().addTo(map);
-  let trayectorias = L.layerGroup().addTo(map); // Capa exclusiva para las líneas
+  let trayectorias = L.layerGroup().addTo(map);
 
   // Lógica de Login
   window.onload = () => {
@@ -283,7 +291,7 @@
   function procesarLogin() {
     const user = document.getElementById('login-user').value.trim().toLowerCase();
     const pass = document.getElementById('login-pass').value.trim();
-    
+
     if (user === 'admin' && pass === 'admin') {
       localStorage.setItem('pics_rol', 'admin');
       iniciarDashboard('admin');
@@ -299,7 +307,7 @@
     localStorage.removeItem('pics_rol');
     clearInterval(intervaloHealth);
     clearInterval(intervaloDatos);
-    location.reload(); 
+    location.reload();
   }
 
   function iniciarDashboard(rol) {
@@ -313,7 +321,7 @@
       document.getElementById('admin-health-container').style.display = 'inline-block';
       document.getElementById('btn-grafana').style.display = 'flex';
       chequearHealth();
-      intervaloHealth = setInterval(chequearHealth, 10000); 
+      intervaloHealth = setInterval(chequearHealth, 10000);
     }
 
     cargarDatos();
@@ -333,10 +341,10 @@
       const dot = document.getElementById('health-dot');
       const text = document.getElementById('health-text');
       const dropdown = document.getElementById('health-dropdown-content');
-      
-      dot.className = 'health-dot'; 
-      if (data.estado_general === 'VERDE') { dot.classList.add('dot-verde'); text.innerText = 'Servicios OK'; } 
-      else if (data.estado_general === 'AMARILLO') { dot.classList.add('dot-amarillo'); text.innerText = 'Advertencia'; } 
+
+      dot.className = 'health-dot';
+      if (data.estado_general === 'VERDE') { dot.classList.add('dot-verde'); text.innerText = 'Servicios OK'; }
+      else if (data.estado_general === 'AMARILLO') { dot.classList.add('dot-amarillo'); text.innerText = 'Advertencia'; }
       else { dot.classList.add('dot-rojo'); text.innerText = 'Error Crítico'; }
 
       dropdown.innerHTML = '';
@@ -356,7 +364,7 @@
   window.dibujarBbox = function(imgElement) {
     let xMin = parseFloat(imgElement.getAttribute('data-xmin')); let yMin = parseFloat(imgElement.getAttribute('data-ymin'));
     let xMax = parseFloat(imgElement.getAttribute('data-xmax')); let yMax = parseFloat(imgElement.getAttribute('data-ymax'));
-    if (isNaN(xMin) || isNaN(yMin)) return; 
+    if (isNaN(xMin) || isNaN(yMin)) return;
     const armarCaja = () => {
       const originalW = imgElement.naturalWidth; const originalH = imgElement.naturalHeight;
       if (!originalW || !originalH) { setTimeout(armarCaja, 50); return; }
@@ -429,28 +437,66 @@
     html2pdf().set(opt).from(elemento).save().then(() => { elemento.style.padding = "0px"; elemento.style.background = "transparent"; });
   }
 
+  //  FUNCIÓN PARA AUDITAR DETECCIONES
+  async function auditarDeteccion(deteccionId, nuevoEstado) {
+    const accionTexto = nuevoEstado === 'falso_positivo' ? 'descartar esta detección (Falso Positivo)' : 'marcar esta detección como Verificada';
+    if(!confirm(`¿Estás seguro de que querés ${accionTexto}?`)) return;
+
+    try {
+      const response = await fetch(`${API_URL}/api/v1/detecciones/${deteccionId}?nuevo_estado=${nuevoEstado}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      if (!response.ok) throw new Error("Fallo en la API al auditar la detección.");
+
+      if (nuevoEstado === 'falso_positivo') {
+        document.getElementById('video-screen').innerHTML = `
+          <div style="padding: 20px; text-align: center; color: #888; width: 100%;">
+            <i class="fa-solid fa-trash-can" style="font-size: 3rem; color: #dc3545; margin-bottom: 15px;"></i>
+            <p>Detección descartada exitosamente.</p>
+            <p style="font-size: 0.8rem; margin-top: 5px;">Se ha enviado al bucket de reentrenamiento para mejorar la IA.</p>
+          </div>
+        `;
+      } else {
+        document.getElementById('video-screen').innerHTML = `
+          <div style="padding: 20px; text-align: center; color: #888; width: 100%;">
+            <i class="fa-solid fa-check-circle" style="font-size: 3rem; color: #198754; margin-bottom: 15px;"></i>
+            <p>Bache verificado correctamente.</p>
+          </div>
+        `;
+      }
+
+      // Refrescamos el mapa y los datos
+      cargarDatos();
+
+    } catch (err) {
+      console.error(err);
+      alert("Ocurrió un error al auditar la detección. Revisá los logs en Grafana.");
+    }
+  }
+
   async function cargarDatos() {
-    // 1. CARGAR DETECCIONES (LOS PINES ROJOS DE BACHES)
     try {
       const resDetec = await fetch(`${API_URL}/api/v1/detecciones?v=${new Date().getTime()}`);
       if (!resDetec.ok) throw new Error(`Error HTTP`);
       const detecciones = await resDetec.json();
       document.getElementById('total-detecciones').textContent = detecciones.length;
-      
-      const videosMap = new Map(); 
+
+      const videosMap = new Map();
       marcadores.clearLayers();
 
       detecciones.forEach(d => {
         if (d.video_id) videosMap.set(d.video_id, d.video_id);
         if (!d.geometria || !d.geometria.coordinates || d.geometria.coordinates.length < 2) return;
         const lon = d.geometria.coordinates[0]; const lat = d.geometria.coordinates[1];
-        
+
         const marker = L.marker([lat, lon], { icon: iconoBache });
 
         const confianza = d.confianza ? (d.confianza * 100).toFixed(0) : 'N/A';
         const clase = d.tipo_dano ? d.tipo_dano.toUpperCase() : 'FALLA';
         const urlImagen = `http://localhost:9000/${NOMBRE_BUCKET}/${d.frame_minio_path}`;
-        
+
         let bboxData = d.bbox; if (typeof bboxData === 'string') { try { bboxData = JSON.parse(bboxData); } catch (e) { bboxData = null; } }
         let bXmin, bYmin, bXmax, bYmax; let hasBbox = false;
         if (bboxData) {
@@ -461,9 +507,14 @@
         let dataAttributes = hasBbox ? `data-xmin="${bXmin}" data-ymin="${bYmin}" data-xmax="${bXmax}" data-ymax="${bYmax}"` : "";
         let onloadScript = hasBbox ? `onload="window.dibujarBbox(this)"` : "";
 
+
+        let badgeEstado = d.estado_auditoria === 'verificado'
+            ? '<span style="background:#198754; color:#fff; padding:3px 8px; border-radius:12px; font-size:0.6rem; margin-left:6px; vertical-align: middle;"><i class="fa-solid fa-check"></i> OK</span>'
+            : '';
+
         marker.bindPopup(`
           <div style="color: #fff; font-size: 0.85rem; width: 180px;">
-            <strong><i class="fa-solid fa-road-circle-exclamation" style="color:var(--color-primario);"></i> ${clase}</strong><br>
+            <strong><i class="fa-solid fa-road-circle-exclamation" style="color:var(--color-primario);"></i> ${clase}</strong> ${badgeEstado}<br>
             Confianza: ${confianza}%<br>
             <div style="margin-top: 8px; border-radius: 6px; overflow: hidden; border: 1px solid var(--color-primario); background: #000; text-align: center;">
                <div style="position: relative; display: inline-block; line-height: 0;">
@@ -473,9 +524,27 @@
             </div>
           </div>
         `);
-        
+
         marker.on('click', async () => {
           videoSeleccionadoActualmente = d.video_id;
+
+          //  LÓGICA DE MOSTRAR O ESCONDER BOTONES SEGÚN EL ESTADO
+          let seccionAuditoriaHTML = '';
+          if (d.estado_auditoria === 'verificado') {
+              seccionAuditoriaHTML = `
+                <div style="margin-top: 20px; padding: 12px; background: rgba(25, 135, 84, 0.15); border: 1px solid #198754; border-radius: 8px; color: #20c997; text-align: center; font-weight: bold; width: 100%; font-size: 0.95rem;">
+                  <i class="fa-solid fa-shield-check"></i> Falla Verificada por Auditoría
+                </div>
+              `;
+          } else {
+              seccionAuditoriaHTML = `
+                <div style="display: flex; gap: 10px; margin-top: 20px; width: 100%;">
+                  <button onclick="auditarDeteccion(${d.id}, 'verificado')" class="btn-auditoria btn-verificado" title="Confirmar que es un bache real"><i class="fa-solid fa-check-double"></i> Verificar Falla</button>
+                  <button onclick="auditarDeteccion(${d.id}, 'falso_positivo')" class="btn-auditoria btn-falso" title="Descartar y enviar a reentrenamiento"><i class="fa-solid fa-trash-can"></i> Falso Positivo</button>
+                </div>
+              `;
+          }
+
           document.getElementById('video-screen').style.padding = "0";
           document.getElementById('video-screen').innerHTML = `
             <div id="ficha-para-exportar" style="width: 100%; height: 100%; text-align:left; display: flex; flex-direction: column;">
@@ -496,6 +565,9 @@
                 <strong><i class="fa-solid fa-calendar-days" style="color:#888;"></i> Fecha de Registro:</strong> ${d.fecha ? new Date(d.fecha).toLocaleDateString('es-AR') : 'Reporte Reciente'}<br>
               </div>
             </div>
+
+            ${seccionAuditoriaHTML}
+
             <button onclick="exportarFichaPDF()" class="btn-ficha-pdf"><i class="fa-solid fa-file-pdf"></i> Exportar Ficha en PDF</button>
           `;
           try {
@@ -529,23 +601,23 @@
       }
     } catch (err) { console.error('Error conectando a la API de detecciones:', err); }
 
-    // 2. CARGAR TRAYECTORIAS (LA LÍNEA PUNTEADA DESDE EL NUEVO ENDPOINT)
+    // Trayectorais
     try {
       const resTrayectos = await fetch(`${API_URL}/api/v1/trayectorias?v=${new Date().getTime()}`);
       if (resTrayectos.ok) {
         const trayectoriasReales = await resTrayectos.json();
-        trayectorias.clearLayers(); 
+        trayectorias.clearLayers();
 
         Object.keys(trayectoriasReales).forEach(vidId => {
-          const puntosDeRuta = trayectoriasReales[vidId]; // Formato esperado: [[lat, lon], [lat, lon], ...]
-          
+          const puntosDeRuta = trayectoriasReales[vidId];
+
           if (puntosDeRuta.length > 1) {
             const lineaPunteada = L.polyline(puntosDeRuta, {
-              color: '#00aaff',    
-              weight: 4,           
-              opacity: 0.7,        
-              dashArray: '10, 10', 
-              lineJoin: 'round'    
+              color: '#00aaff',
+              weight: 4,
+              opacity: 0.7,
+              dashArray: '10, 10',
+              lineJoin: 'round'
             });
             trayectorias.addLayer(lineaPunteada);
           }

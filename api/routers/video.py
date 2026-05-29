@@ -210,7 +210,6 @@ async def preguntar_a_video(
             {"role": "user", "content": request.pregunta},
         ]
 
-        # El Agente decide si usa la herramienta o responde directo segun convenga
         async with httpx.AsyncClient() as client:
             respuesta_fase1 = await client.post(
                 f"{settings.OLLAMA_URL}/api/chat",
@@ -225,7 +224,6 @@ async def preguntar_a_video(
             respuesta_fase1.raise_for_status()
             mensaje_ia = respuesta_fase1.json().get("message", {})
 
-            # Ejecución de la herramienta
             if "tool_calls" in mensaje_ia and mensaje_ia["tool_calls"]:
                 logger.info("El Agente decidió usar el mapa de OpenStreetMap en vivo.")
 
@@ -245,7 +243,6 @@ async def preguntar_a_video(
                 if not isinstance(argumentos, dict):
                     argumentos = {}
 
-                # Conversión a floats x q si no no funciona bien
                 arg_lat = lat
                 arg_lng = lng
                 try:
@@ -255,9 +252,7 @@ async def preguntar_a_video(
                         arg_lng = float(argumentos["lng"])
                 except (ValueError, TypeError):
                     logger.warning("La IA Usó las reales de la BD.")
-                # -----------------------------------------------------
 
-                # Llamada real a geo_service
                 datos_osm = await obtener_contexto_geografico(
                     arg_lat, arg_lng, radio_pois=400
                 )

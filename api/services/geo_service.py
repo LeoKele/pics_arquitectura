@@ -6,12 +6,11 @@ import httpx
 
 logger = logging.getLogger("api.geo_service")
 
-# Lista de instancias de Overpass para fallback
 OVERPASS_URLS = [
-    "https://overpass-api.de/api/interpreter",        
-    "https://lz4.overpass-api.de/api/interpreter",    
-    "https://z.overpass-api.de/api/interpreter",      
-    "https://maps.mail.ru/osm/tools/overpass/api/interpreter" 
+    "https://overpass-api.de/api/interpreter",
+    "https://lz4.overpass-api.de/api/interpreter",
+    "https://z.overpass-api.de/api/interpreter",
+    "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
 ]
 
 
@@ -51,7 +50,7 @@ async def obtener_nombre_calle(lat: float, lng: float):
                         name = elem.get("tags", {}).get("name")
                         if name:
                             return name
-                    # Si no hay nombres, devolver el tipo de vía más relevante
+
                     if data.get("elements"):
                         return (
                             data["elements"][0]
@@ -184,7 +183,6 @@ def parsear_respuesta_osm(data, lat_ref, lng_ref):
         calles_encontradas[0]["tipo"] if calles_encontradas else "no especificado"
     )
 
-    # Identificar calles cruzadas (intersecciones potenciales)
     calles_cruzadas = []
     for c in calles_encontradas:
         if c["nombre"] != calle_nombre and c["nombre"] != "Calle sin nombre":
@@ -204,9 +202,7 @@ def parsear_respuesta_osm(data, lat_ref, lng_ref):
     return {
         "calle": calle_nombre,
         "tipo_calle": tipo_calle,
-        "calles_cruzadas": calles_cruzadas[
-            :2
-        ],  # Solo las 2 más cercanas para "entre calles"
+        "calles_cruzadas": calles_cruzadas[:2],
         "pois_cercanos": pois_labels,
         "resumen_contexto": f"{calle_nombre} ({tipo_calle})",
     }

@@ -43,7 +43,6 @@ async def generar_reporte(
         ids_v = [v.id for v in videos]
         logger.info(f"--- INICIO GENERACIÓN REPORTE (Videos: {ids_v}) ---")
 
-        # --- 1. RANGO DE CALLES POR VIDEO ---
         resumen_recorridos = []
         for v in videos:
             puntos = db.execute(
@@ -70,7 +69,6 @@ async def generar_reporte(
         recorridos_str = "\n".join(resumen_recorridos)
         logger.info(f"Cobertura geográfica determinada:\n{recorridos_str}")
 
-        # --- 2. HALLAZGOS AGRUPADOS (CLUSTERS) ---
         query_global = text("""
             WITH clusters AS (
                 SELECT tipo_dano, confianza, geom,
@@ -92,7 +90,6 @@ async def generar_reporte(
             f"Total baches/puntos agrupados (clusters) encontrados: {len(baches_agrupados)}"
         )
 
-        # --- 3. ENRIQUECIMIENTO Y AGRUPACIÓN POR CALLE ---
         agrupacion_calles = {}
         for b in baches_agrupados:
             contexto = await obtener_contexto_geografico(b.lat, b.lng)
@@ -116,7 +113,6 @@ async def generar_reporte(
             for p in contexto["pois_cercanos"]:
                 agrupacion_calles[calle]["pois"].add(p)
 
-        # Cálculo de Prioridad Técnica
         detalles_contexto_vial = []
         for calle, info in agrupacion_calles.items():
             score = len(info["hallazgos"]) * 2
@@ -155,7 +151,6 @@ async def generar_reporte(
 
         contexto_hallazgos_str = "\n".join(detalles_contexto_vial)
 
-        # --- 4. GENERACIÓN DEL REPORTE CON IA ---
         prompt = f"""
         Sos un inspector vial experto del municipio de Moreno.
         Tu tarea es redactar un informe ejecutivo formal y técnico.
@@ -192,8 +187,6 @@ async def generar_reporte(
         logger.info("--- PROMPT ENVIADO A OLLAMA ---")
         logger.info(prompt)
 
-        # Generamos el reporte ANTES de abrir/usar la transacción de DB de forma intensiva
-        # o simplemente nos aseguramos de que el timeout sea lo suficientemente largo.
         async with httpx.AsyncClient() as client:
             try:
                 response = await client.post(
@@ -223,7 +216,6 @@ async def generar_reporte(
 
         logger.info("--- RESPUESTA RECIBIDA DE OLLAMA ---")
 
-        # Guardado en base de datos (Operación rápida)
         try:
             nuevo_reporte = models.Reporte(contenido=contenido_reporte)
             db.add(nuevo_reporte)

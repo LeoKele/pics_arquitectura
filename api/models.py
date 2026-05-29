@@ -44,10 +44,9 @@ class ReporteVideo(Base):
 
 class Telemetria(Base):
     __tablename__ = "telemetria"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     video_id = Column(String, index=True)
-    tiempo = Column(Float) # O DateTime, el timestamp del GPS
-    
-    # PostGIS Point para guardar la coordenada exacta
-    geometria = Column(Geometry('POINT', srid=4326))
+    tiempo = Column(Float)
+
+    geometria = Column(Geometry("POINT", srid=4326))
