@@ -114,16 +114,18 @@ def auditar_deteccion(
 
     if nuevo_estado.lower() == "falso_positivo":
         if deteccion.frame_minio_path:
-            try:
-                from dependencias import minio_client
-                from minio.commonconfig import CopySource
+            from dependencias import minio_client
+            from minio.commonconfig import CopySource
 
-                reentrenamiento_bucket = "backgrounds-reentrenamiento"
+            reentrenamiento_bucket = "backgrounds-reentrenamiento"
+
+            # --- BLOQUE 1: INTENTAR COPIAR ---
+            try:
                 # Asegurar que el bucket de reentrenamiento exista
                 if not minio_client.bucket_exists(reentrenamiento_bucket):
                     minio_client.make_bucket(reentrenamiento_bucket)
 
-                # Copiar objeto limpio al bucket de reentrenamiento
+                # Copiar objeto limpio al bucket de reentrenamiento (mantiene ruta original)
                 source = CopySource("detecciones", deteccion.frame_minio_path)
                 minio_client.copy_object(
                     reentrenamiento_bucket, deteccion.frame_minio_path, source
@@ -131,15 +133,21 @@ def auditar_deteccion(
                 logger.info(
                     f"Imagen limpia copiada a {reentrenamiento_bucket}/{deteccion.frame_minio_path}"
                 )
+            except Exception as e_copy:
+                logger.error(
+                    f"Error al intentar copiar la imagen a backgrounds-reentrenamiento: {e_copy}"
+                )
 
+            # --- BLOQUE 2: FORZAR EL BORRADO INDEPENDIENTE DE LA COPIA ---
+            try:
                 # Borrar la imagen del bucket activo de detecciones
                 minio_client.remove_object("detecciones", deteccion.frame_minio_path)
                 logger.info(
                     f"Imagen activa eliminada de detecciones: {deteccion.frame_minio_path}"
                 )
-            except Exception as e:
+            except Exception as e_remove:
                 logger.error(
-                    f"Error al mover la imagen limpia a backgrounds-reentrenamiento: {e}"
+                    f"Error crítico al intentar eliminar la imagen de detecciones: {e_remove}"
                 )
 
     db.commit()

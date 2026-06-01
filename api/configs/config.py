@@ -8,6 +8,7 @@ class Settings:
     MINIO_ROOT_PASSWORD: str = os.getenv("MINIO_ROOT_PASSWORD", "minioadmin")
     OLLAMA_URL: str = os.getenv("OLLAMA_URL", "http://ollama:11434")
     BUCKET_NAME: str = "videos-crudos"
+    MINIO_PUBLIC_URL: str = os.getenv("MINIO_PUBLIC_URL", "http://localhost:9000")
 
 
 settings = Settings()

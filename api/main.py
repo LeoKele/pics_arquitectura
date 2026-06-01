@@ -28,15 +28,15 @@ else:
 
 app = FastAPI(title="Mapeo Vial Moreno", version="1.1.4")
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.include_router(sistema.router)
 app.include_router(video.router)
 app.include_router(deteccion.router)
 app.include_router(reporte.router)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)

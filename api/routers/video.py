@@ -1,13 +1,14 @@
 import json
 import logging
 import traceback
+from typing import Any, Dict, List, Optional
 
 import httpx
 import models
 import schemas
 from configs.config import settings
 from database import get_db
-from dependencias import minio_client, r
+from dependencias import minio_client, r, s3_public_client
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from minio.error import S3Error
 from pydantic import BaseModel
@@ -17,22 +18,38 @@ from sqlalchemy.orm import Session
 
 router = APIRouter()
 logger = logging.getLogger("api.video")
+from minio.error import S3Error
 
 
 class PreguntaRequest(BaseModel):
     pregunta: str
 
 
-@router.post(
-    "/api/v1/videos",
-    status_code=status.HTTP_202_ACCEPTED,
-    response_model=schemas.VideoResponse,
-)
-def subir_video(
+class IniciarUploadRequest(BaseModel):
+    filename: str
+    content_type: str
+
+
+class ParteFirmadaRequest(BaseModel):
+    filename: str
+    upload_id: str
+    part_number: int
+
+
+class FinalizarUploadRequest(BaseModel):
+    filename: str
+    upload_id: str
+    parts: List[Dict[str, Any]]
+    telemetria: Optional[List[Dict[str, Any]]] = []
+
+
+@router.post("/api/v1/videos/manual", status_code=status.HTTP_202_ACCEPTED)
+def subir_video_manual(
     video: UploadFile = File(...),
     metadata: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
+    """Sube un video y su JSON de GPS manualmente desde la interfaz web."""
     if not video.filename.endswith((".mp4", ".webm")):
         logger.warning(f"Archivo rechazado por extensión inválida: {video.filename}")
         raise HTTPException(
@@ -89,10 +106,111 @@ def subir_video(
         )
 
     return {
-        "mensaje": "Video y metadata recibidos correctamente",
+        "mensaje": "Video y metadata recibidos correctamente (Modo Manual)",
         "video_id": nuevo_video.id,
         "estado": nuevo_video.estado,
     }
+
+
+@router.post("/api/v1/videos/upload/iniciar", tags=["Videos Multipart"])
+def iniciar_upload_multipart(request: IniciarUploadRequest):
+    """Paso 1: Le avisa a MinIO que vamos a empezar a subir un archivo en partes."""
+    try:
+        if not minio_client.bucket_exists(settings.BUCKET_NAME):
+            minio_client.make_bucket(settings.BUCKET_NAME)
+
+        # Iniciamos el multipart usando el cliente público boto3
+        response = s3_public_client.create_multipart_upload(
+            Bucket=settings.BUCKET_NAME,
+            Key=request.filename,
+            ContentType=request.content_type,
+        )
+        return {"upload_id": response["UploadId"], "key": request.filename}
+    except Exception as e:
+        logger.error(f"Error iniciando multipart: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/api/v1/videos/upload/firmar-parte", tags=["Videos Multipart"])
+def firmar_parte(request: ParteFirmadaRequest):
+    """Paso 2: Genera una URL temporal segura para subir un pedazo (chunk) del video."""
+    try:
+        presigned_url = s3_public_client.generate_presigned_url(
+            ClientMethod="upload_part",
+            Params={
+                "Bucket": settings.BUCKET_NAME,
+                "Key": request.filename,
+                "UploadId": request.upload_id,
+                "PartNumber": request.part_number,
+            },
+            ExpiresIn=3600,
+        )
+        return {"url": presigned_url}
+    except Exception as e:
+        logger.error(f"Error firmando parte: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post(
+    "/api/v1/videos/upload/finalizar",
+    status_code=status.HTTP_202_ACCEPTED,
+    tags=["Videos Multipart"],
+)
+def finalizar_upload_multipart(
+    request: FinalizarUploadRequest, db: Session = Depends(get_db)
+):
+    """Paso 3: Ensambla el video en MinIO, guarda el JSON del GPS, lo registra en BD y lo encola."""
+    try:
+        s3_public_client.complete_multipart_upload(
+            Bucket=settings.BUCKET_NAME,
+            Key=request.filename,
+            UploadId=request.upload_id,
+            MultipartUpload={"Parts": request.parts},
+        )
+        logger.info(f"Video {request.filename} ensamblado exitosamente en MinIO.")
+
+        json_filename = request.filename.replace(".webm", ".json")
+
+        try:
+            s3_public_client.put_object(
+                Bucket=settings.BUCKET_NAME,
+                Key=json_filename,
+                Body=json.dumps(
+                    request.telemetria
+                ),  # Convertimos la lista a texto JSON
+                ContentType="application/json",
+            )
+            logger.info(f"Telemetría guardada en MinIO como {json_filename}")
+        except Exception as e:
+            logger.error(f"Error guardando telemetría en MinIO: {e}")
+
+        nuevo_video = models.Video(
+            nombre_archivo=request.filename,
+            nombre_metadata=json_filename,  # <-- Acá le pasamos el nombre exacto
+            estado="pendiente",
+        )
+        db.add(nuevo_video)
+        db.commit()
+        db.refresh(nuevo_video)
+        logger.info(f"Video registrado en BD con ID: {nuevo_video.id}")
+
+        try:
+            r.rpush("cola_preprocesamiento", nuevo_video.id)
+            logger.info(f"Tarea encolada en Redis para video ID: {nuevo_video.id}")
+        except Exception as redis_e:
+            logger.error(
+                f"Error al enviar tarea a Redis para video ID {nuevo_video.id}: {redis_e}"
+            )
+
+        return {
+            "mensaje": "Video y telemetría guardados correctamente",
+            "video_id": nuevo_video.id,
+            "estado": nuevo_video.estado,
+        }
+
+    except Exception as e:
+        logger.error(f"Error finalizando multipart: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get(
@@ -128,7 +246,6 @@ async def preguntar_a_video(
         raise HTTPException(status_code=400, detail="El video aún no fue procesado.")
 
     try:
-
         detecciones = (
             db.query(models.Deteccion)
             .filter(
@@ -297,3 +414,21 @@ async def preguntar_a_video(
         raise HTTPException(
             status_code=500, detail="Error en la Inteligencia Artificial."
         )
+
+
+@router.delete("/api/v1/sistema/reset", tags=["Mantenimiento"])
+def resetear_base_de_datos(db: Session = Depends(get_db)):
+    """Botón rojo: Borra todos los videos y detecciones, y resetea los IDs a 1."""
+    try:
+        db.execute(
+            text(
+                "TRUNCATE TABLE video, deteccion, reporte, reporte_video, telemetria RESTART IDENTITY CASCADE;"
+            )
+        )
+        db.commit()
+        return {
+            "mensaje": "¡Sistema reseteado! Los mapas están en blanco y el próximo video será el ID: 1"
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))

@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="es" data-bs-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>PozoCam - Moreno</title>
+<!-- localForage para guardar el video localmente en IndexedDB -->
+<script src="js/localforage.min.js"></script>
+<!-- Uppy.js para subidas en partes (Multipart Upload) directas a MinIO -->
+<link href="css/uppy.min.css" rel="stylesheet">
+<script src="js/uppy.min.js"></script>
+<!-- Font Awesome -->
+<link rel="stylesheet" href="css/all.min.css">
+<!-- Hojas de estilos del proyecto -->
+<link rel="stylesheet" href="css/bootstrap.min.css">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div class="screen" id="screenRecord">
+  <div id="camContainer"><video id="camVideo" autoplay playsinline muted></video></div>
+
+  <div class="topbar">
+    <div class="logo fw-bold fs-4 text-primary" style="letter-spacing: 0.05em;">POZO<span class="text-light opacity-50">CAM</span></div>
+    <div class="d-flex align-items-center gap-2">
+        <div class="d-flex gap-1">
+          <div class="badge rounded-pill border border-secondary text-muted bg-transparent d-flex align-items-center gap-1 py-1 px-2" id="gpsPill">
+            <div class="dot bg-secondary" style="width: 6px; height: 6px; border-radius: 50%;"></div>
+            <span id="gpsTxt" style="font-size: 0.6rem; letter-spacing: 0.05em;">GPS</span>
+          </div>
+          <div class="badge rounded-pill border border-secondary text-muted bg-transparent d-flex align-items-center gap-1 py-1 px-2" id="recPill">
+            <div class="dot bg-secondary" id="recDot" style="width: 6px; height: 6px; border-radius: 50%;"></div>
+            <span id="recTxt" style="font-size: 0.6rem; letter-spacing: 0.05em;">IDLE</span>
+          </div>
+        </div>
+        <button class="btn-settings-header" data-bs-toggle="modal" data-bs-target="#modalSettings">
+          <i class="fa-solid fa-gear"></i>
+        </button>
+    </div>
+  </div>
+
+  <div class="hud">
+    <div class="card border-0 border-start border-3 border-primary p-2 bg-black bg-opacity-50 text-start" style="backdrop-filter: blur(6px); max-width: 180px;">
+      <div class="text-muted text-uppercase fw-bold mb-1" style="font-size: 0.55rem; letter-spacing: 0.1em;"><i class="fa-solid fa-satellite-dish"></i> POSICIÓN</div>
+      <div class="fw-bold text-primary fs-6 lh-sm text-muted" id="gpsVal">Buscando...</div>
+    </div>
+
+    <div class="stats-overlay">
+        <div class="badge bg-black bg-opacity-50 border border-secondary text-light font-monospace py-1 px-2 text-end" style="backdrop-filter: blur(4px); font-size: 0.6rem;">Res: <span class="text-primary fw-bold" id="stRes">—</span></div>
+        <div class="badge bg-black bg-opacity-50 border border-secondary text-light font-monospace py-1 px-2 text-end" style="backdrop-filter: blur(4px); font-size: 0.6rem;">Pts: <span class="text-primary fw-bold" id="stFrames">0</span></div>
+        <div class="badge bg-black bg-opacity-50 border border-secondary text-light font-monospace py-1 px-2 text-end" style="backdrop-filter: blur(4px); font-size: 0.6rem;">Acc: <span class="text-primary fw-bold" id="stAcc">—</span></div>
+    </div>
+  </div>
+
+  <div class="rec-controls">
+    <div class="text-center fw-bold fs-1 mb-2 lh-1 text-light" id="timer" style="letter-spacing: 0.04em;">00:00:00</div>
+
+    <div class="row g-2" id="recBtnGrid">
+      <div class="col-12">
+        <button class="btn btn-danger w-100 fw-bold py-3 text-uppercase" id="btnAction" onclick="handleMainAction()"><i class="fa-solid fa-circle"></i> GRABAR</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="modalSettings" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title fs-5 fw-bold">CONFIGURACIÓN</div>
+            </div>
+            <div class="modal-body">
+                <div class="setting-group mb-3">
+                    <label class="setting-label form-label">Cámara</label>
+                    <select class="select-custom form-select form-select-sm" id="selCamera" onchange="applySettings()"></select>
+                </div>
+
+                <div class="setting-group mb-3">
+                    <label class="setting-label form-label">Resolución / Ratio</label>
+                    <select class="select-custom form-select form-select-sm" id="selRes" onchange="applySettings()">
+                        <option value="1920x1080">Full HD (16:9) - 1080p</option>
+                        <option value="1280x720">HD (16:9) - 720p</option>
+                        <option value="1080x1080">Square (1:1) - 1080px</option>
+                        <option value="full">Pantalla Completa</option>
+                    </select>
+                </div>
+
+                <div class="setting-group mb-3">
+                    <label class="setting-label form-label">Calidad Video</label>
+                    <select class="select-custom form-select form-select-sm" id="selBitrate" onchange="applySettings()">
+                        <option value="10000000">Muy Alta (10 Mbps)</option>
+                        <option value="7500000" selected>Alta (7.5 Mbps)</option>
+                        <option value="5000000">Media (5 Mbps)</option>
+                        <option value="2500000">Baja (2.5 Mbps)</option>
+                    </select>
+                </div>
+
+                <div class="setting-group mb-3">
+                    <label class="setting-label form-label">Servidor API</label>
+                    <input type="text" class="select-custom form-control form-control-sm" id="txtApiUrl" value="http://34.63.158.31:8000" placeholder="http://34.63.158.31:8000" onchange="applySettings()">
+                </div>
+            </div>
+            <div class="modal-footer border-0">
+                <button class="btn btn-outline-secondary w-100 py-2.5 fw-bold text-uppercase" data-bs-dismiss="modal">CERRAR</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- MODAL DE PROGRESO DE SUBIDA -->
+<div class="modal fade" id="modalUpload" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content text-center">
+            <div class="modal-body p-4">
+                <div class="modal-title mb-3 text-primary fw-bold fs-4">SUBIENDO RECORRIDO</div>
+                <div id="uploadStatusText" class="small mb-4 text-light">Preparando archivos...</div>
+
+                <!-- Barra de progreso Bootstrap -->
+                <div class="progress mb-4" style="height: 12px; background-color: var(--s3); border: 1px solid var(--border);">
+                    <div id="uploadProgressBar" class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%; background-image: linear-gradient(90deg, var(--accent-d), var(--accent)); transition: width 0.3s ease;"></div>
+                </div>
+
+                <!-- Pasos de la subida -->
+                <div class="text-start small text-light border-top border-secondary pt-3 d-flex flex-column gap-2" id="uploadSteps">
+                    <div id="step-init"><i class="fa-regular fa-circle text-muted"></i> <span class="text-muted">Inicializar subida en servidor</span></div>
+                    <div id="step-gps"><i class="fa-regular fa-circle text-muted"></i> <span class="text-muted">Enviar metadata GPS</span></div>
+                    <div id="step-video"><i class="fa-regular fa-circle text-muted"></i> <span class="text-muted">Subir video en partes</span></div>
+                    <div id="step-finalize"><i class="fa-regular fa-circle text-muted"></i> <span class="text-muted">Consolidar y procesar</span></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="toast"></div>
+
+<!-- Lógica del proyecto -->
+<script src="js/bootstrap.bundle.min.js"></script>
+<script src="js/state.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/camera.js"></script>
+<script src="js/telemetry.js"></script>
+<script src="js/recorder.js"></script>
+<script src="js/exporter.js"></script>
+<script src="js/uploader.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

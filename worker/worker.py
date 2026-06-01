@@ -71,13 +71,12 @@ class Deteccion(Base):
     fecha_deteccion = Column(DateTime, default=datetime.utcnow)
 
 
-# --- NUEVO MODELO DE TELEMETRÍA CORREGIDO ---
 class Telemetria(Base):
     __tablename__ = "telemetria"
     id = Column(Integer, primary_key=True)
     video_id = Column(Integer, ForeignKey("video.id"))
     tiempo = Column(Float)
-    geometria = Column(Geometry("POINT", srid=4326)) # ¡Corregido de 'geom' a 'geometria'!
+    geometria = Column(Geometry("POINT", srid=4326))
 
 
 # CARGAR EL MODELO YOLO
@@ -96,10 +95,21 @@ except Exception as e:
 # Función para buscar la coordenada correcta
 def obtener_coordenada(datos_gps, tiempo_ms):
     if not datos_gps:
-        return -34.65, -58.79  
+        return -34.65, -58.79
 
     punto_mas_cercano = min(datos_gps, key=lambda x: abs(x["elapsed_ms"] - tiempo_ms))
     return punto_mas_cercano["lat"], punto_mas_cercano["lng"]
+
+
+# --- NUEVA FUNCIÓN: GEOCERCA DE MORENO ---
+def esta_en_moreno(lat, lng):
+    # Límites aproximados del Partido de Moreno (Rectángulo envolvente)
+    LAT_NORTE = -34.5400  # Límite superior (San Miguel / José C. Paz)
+    LAT_SUR = -34.7600  # Límite inferior (Dique Roggero / Marcos Paz)
+    LNG_OESTE = -58.8900  # Límite izquierdo (Gral. Rodríguez)
+    LNG_ESTE = -58.7250  # Límite derecho (Río de la Reconquista / Merlo)
+
+    return (LAT_SUR <= lat <= LAT_NORTE) and (LNG_OESTE <= lng <= LNG_ESTE)
 
 
 def guardar_y_subir_imagen(frame_original, video_id, tiempo_ms, j):
@@ -141,7 +151,9 @@ while True:
             db.commit()
 
             # 1. DESCARGAR EL JSON DE COORDENADAS
-            nombre_base = video.nombre_archivo.replace("procesado_", "").rsplit(".", 1)[0]
+            nombre_base = video.nombre_archivo.replace("procesado_", "").rsplit(".", 1)[
+                0
+            ]
             nombre_json = f"{nombre_base}.json"
             ruta_json_local = f"/tmp/{nombre_json}"
 
@@ -154,22 +166,28 @@ while True:
                     datos_gps = json_completo.get("data", [])
                 logger.info(f"Éxito: Se cargaron {len(datos_gps)} puntos de GPS.")
 
-                # --- GUARDAR TODA LA TELEMETRÍA ---
-                logger.info(f"Guardando la trayectoria completa ({len(datos_gps)} puntos) en PostgreSQL...")
+                # --- GUARDAR TODA LA TELEMETRÍA (SOLO EN MORENO) ---
+                logger.info(f"Procesando trayectoria de {len(datos_gps)} puntos GPS...")
+                puntos_guardados = 0
                 for punto in datos_gps:
                     lat = punto.get("lat")
                     lng = punto.get("lng")
                     tiempo_ms = punto.get("elapsed_ms", 0.0)
-                    
+
                     if lat is not None and lng is not None:
-                        nueva_telemetria = Telemetria(
-                            video_id=video_id,
-                            tiempo=float(tiempo_ms),
-                            geometria=from_shape(Point(lng, lat), srid=4326) # ¡Corregido acá también!
-                        )
-                        db.add(nueva_telemetria)
+                        if esta_en_moreno(lat, lng):  # <-- FILTRO GEOGRÁFICO
+                            nueva_telemetria = Telemetria(
+                                video_id=video_id,
+                                tiempo=float(tiempo_ms),
+                                geometria=from_shape(Point(lng, lat), srid=4326),
+                            )
+                            db.add(nueva_telemetria)
+                            puntos_guardados += 1
+
                 db.commit()
-                logger.info("Trayectoria guardada en BD con éxito.")
+                logger.info(
+                    f"Trayectoria guardada: {puntos_guardados} puntos dentro de Moreno."
+                )
                 # --------------------------------------------------------------
 
             except Exception as e:
@@ -197,10 +215,10 @@ while True:
                     return 0
 
             objetos_frames.sort(key=extraer_tiempo)
-            
+
             baches_detectados = 0
-            diccionario_tracks = {}  
-            ids_procesados = set()  
+            diccionario_tracks = {}
+            ids_procesados = set()
 
             total_frames = len(objetos_frames)
             logger.info(f"Procesando {total_frames} frames...")
@@ -209,12 +227,21 @@ while True:
                 nombre_archivo_minio = obj.object_name
 
                 if i % 5 == 0:
-                    logger.info(f"Progreso: Frame {i}/{total_frames} ({obj.object_name})")
+                    logger.info(
+                        f"Progreso: Frame {i}/{total_frames} ({obj.object_name})"
+                    )
 
                 try:
                     tiempo_ms = int(nombre_archivo_minio.split("_")[-1].split(".")[0])
                 except ValueError:
                     continue
+
+                # --- PATOVICA GEOGRÁFICO: Chequear antes de descargar ---
+                lat_frame, lng_frame = obtener_coordenada(datos_gps, tiempo_ms)
+                if not esta_en_moreno(lat_frame, lng_frame):
+                    # Si cruzó a Merlo/Ituzaingó, ignoramos este frame
+                    continue
+                # ---------------------------------------------------------
 
                 ruta_local_frame = f"/tmp/frame_{tiempo_ms}.jpg"
                 minio_client.fget_object(
@@ -245,18 +272,22 @@ while True:
                         y_centro = float(box.xywh[0][1])
                         alto_imagen = frame.shape[0]
                         if y_centro < (alto_imagen * 0.50):
-                            logger.info(f"Omitiendo {nombre_clase} por estar en el horizonte")
+                            logger.info(
+                                f"Omitiendo {nombre_clase} por estar en el horizonte"
+                            )
                             continue
 
-                        id_log = f"ID:{track_id}" if track_id is not None else "ID:NUEVO"
+                        id_log = (
+                            f"ID:{track_id}" if track_id is not None else "ID:NUEVO"
+                        )
 
                         lat, lng = obtener_coordenada(datos_gps, tiempo_ms)
                         punto_wkt = f"SRID=4326;POINT({lng} {lat})"
 
                         distancias_map = {
-                            "d40": 0.00003,  
-                            "d20": 0.00010,  
-                            "calle_tierra": 0.00030,  
+                            "d40": 0.00003,
+                            "d20": 0.00010,
+                            "calle_tierra": 0.00030,
                         }
                         umbral = distancias_map.get(nombre_clase.lower(), 0.00003)
 
@@ -264,7 +295,11 @@ while True:
 
                         if track_id is not None and track_id in diccionario_tracks:
                             id_bd = diccionario_tracks[track_id]
-                            duplicado = db.query(Deteccion).filter(Deteccion.id == id_bd).first()
+                            duplicado = (
+                                db.query(Deteccion)
+                                .filter(Deteccion.id == id_bd)
+                                .first()
+                            )
 
                         if not duplicado:
                             duplicado = (
@@ -282,17 +317,23 @@ while True:
 
                         if duplicado:
                             if confianza > duplicado.confianza:
-                                logger.info(f"Actualizando {nombre_clase} ({id_log}): {duplicado.confianza:.2f} -> {confianza:.2f}")
+                                logger.info(
+                                    f"Actualizando {nombre_clase} ({id_log}): {duplicado.confianza:.2f} -> {confianza:.2f}"
+                                )
                                 if duplicado.frame_minio_path:
                                     try:
-                                        minio_client.remove_object("detecciones", duplicado.frame_minio_path)
+                                        minio_client.remove_object(
+                                            "detecciones", duplicado.frame_minio_path
+                                        )
                                     except Exception as e:
                                         pass
 
                                 x1, y1, x2, y2 = map(int, box.xyxy[0])
                                 bbox_dict = {"x1": x1, "y1": y1, "x2": x2, "y2": y2}
 
-                                ruta_minio_deteccion = guardar_y_subir_imagen(frame, video_id, tiempo_ms, j)
+                                ruta_minio_deteccion = guardar_y_subir_imagen(
+                                    frame, video_id, tiempo_ms, j
+                                )
 
                                 duplicado.confianza = confianza
                                 duplicado.frame_minio_path = ruta_minio_deteccion
@@ -302,12 +343,16 @@ while True:
                             continue
 
                         baches_detectados += 1
-                        logger.info(f"NUEVO bache detectado: {nombre_clase} ({id_log}, Conf: {confianza:.2f})")
+                        logger.info(
+                            f"NUEVO bache detectado: {nombre_clase} ({id_log}, Conf: {confianza:.2f})"
+                        )
 
                         x1, y1, x2, y2 = map(int, box.xyxy[0])
                         bbox_dict = {"x1": x1, "y1": y1, "x2": x2, "y2": y2}
 
-                        ruta_minio_deteccion = guardar_y_subir_imagen(frame, video_id, tiempo_ms, j)
+                        ruta_minio_deteccion = guardar_y_subir_imagen(
+                            frame, video_id, tiempo_ms, j
+                        )
 
                         nueva_deteccion = Deteccion(
                             video_id=video_id,
