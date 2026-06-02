@@ -3,7 +3,7 @@ name: Deploy Frontend to GKE
 on:
   push:
     branches:
-      - updates
+      - main
     paths:
       - 'frontend/**'
 
