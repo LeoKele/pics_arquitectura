@@ -153,8 +153,19 @@ async function abrirModalReporte(metodoAccion) {
   if (!videoSeleccionadoActualmente) return;
   const modal = document.getElementById('modal-reporte'); const body = document.getElementById('modal-reporte-body');
   modal.style.display = 'flex';
-  const mensajeCarga = metodoAccion === 'POST' ? 'Despertando a Llama 3.2 para crear un nuevo reporte...' : 'Buscando el reporte guardado en la base de datos...';
-  body.innerHTML = `<div style="text-align:center; padding: 40px;"><div style="color:var(--color-primario); font-size: 2rem; margin-bottom: 16px;"><i class="fa-solid fa-circle-notch fa-spin"></i></div><div style="color:#aaa; font-size: 1.1rem;">${mensajeCarga}</div></div>`;
+  if (metodoAccion === 'POST') {
+      body.innerHTML = `
+          <div class="ia-progress-container">
+              <div id="barra-ia" class="ia-progress-bar"></div>
+          </div>
+          <div class="reporte-texto" id="texto-stream" style="padding-top: 20px;">
+              <em style="color:#888;"><i class="fa-solid fa-plug fa-fade"></i> Analizando datos geográficos e inicializando el modelo IA...</em>
+          </div>
+      `;
+  } else {
+      body.innerHTML = `<div style="text-align:center; padding: 40px;"><div style="color:var(--color-primario); font-size: 2rem; margin-bottom: 16px;"><i class="fa-solid fa-circle-notch fa-spin"></i></div><div style="color:#aaa; font-size: 1.1rem;">Buscando el reporte guardado...</div></div>`;
+  }
+
 
   try {
     let urlReporte = ''; let opcionesFetch = {};
@@ -175,7 +186,15 @@ async function abrirModalReporte(metodoAccion) {
 
     // LÓGICA DE MÁQUINA DE ESCRIBIR (STREAMING) PARA POST
     if (metodoAccion === 'POST') {
-        body.innerHTML = `<div class="reporte-texto" id="texto-stream"><em style="color:#888;"><i class="fa-solid fa-circle-notch fa-spin"></i> Recopilando datos geográficos y analizando con Llama 3.2... (Esto puede demorar unos momentos)</em></div>`;
+        // Inyectamos la barra animada y el espacio para el texto
+        body.innerHTML = `
+            <div class="ia-progress-container">
+                <div id="barra-ia" class="ia-progress-bar"></div>
+            </div>
+            <div class="reporte-texto" id="texto-stream">
+                <em style="color:#888;"><i class="fa-solid fa-circle-notch fa-spin"></i> Analizando contexto con Llama 3.2...</em>
+            </div>
+        `;
 
         const reader = response.body.getReader();
         const decoder = new TextDecoder("utf-8");
@@ -185,8 +204,10 @@ async function abrirModalReporte(metodoAccion) {
             const { done, value } = await reader.read();
             if (done) break; // Terminó de escribir
 
-            // Si es la primera palabra, borramos el mensaje de carga
-            if (textoAcumulado === "") { body.innerHTML = `<div class="reporte-texto" id="texto-stream"></div>`; }
+            // Si es la primera palabra, borramos el "Analizando contexto..."
+            if (textoAcumulado === "") {
+                document.getElementById('texto-stream').innerHTML = "";
+            }
 
             textoAcumulado += decoder.decode(value, { stream: true });
 
@@ -196,8 +217,16 @@ async function abrirModalReporte(metodoAccion) {
             // Auto-scroll hacia abajo
             body.scrollTop = body.scrollHeight;
         }
+
+        // --- LA IA TERMINÓ ---
         // Limpiamos el cursor cuadradito al final
         document.getElementById('texto-stream').innerHTML = marked.parse(textoAcumulado);
+
+        // Frenamos la barra y la pintamos de verde
+        const barra = document.getElementById('barra-ia');
+        if (barra) {
+            barra.className = 'ia-progress-done';
+        }
     }
     // LÓGICA NORMAL (GET de un reporte ya guardado)
     else {
@@ -451,18 +480,48 @@ async function cargarDatos() {
 }
 
 async function enviarMensaje() {
-  if (!videoSeleccionadoActualmente) return;
-  const input = document.getElementById('chat-input'); const chatBox = document.getElementById('chat-box');
-  const mensaje = input.value.trim(); if (!mensaje) return;
-  const userBubble = document.createElement('div'); userBubble.className = 'chat-bubble chat-user'; userBubble.textContent = mensaje; chatBox.appendChild(userBubble);
-  input.value = ''; chatBox.scrollTop = chatBox.scrollHeight;
-  const aiBubble = document.createElement('div'); aiBubble.className = 'chat-bubble chat-ai'; aiBubble.innerHTML = '<em><i class="fa-solid fa-circle-notch fa-spin"></i> Analizando...</em>'; chatBox.appendChild(aiBubble); chatBox.scrollTop = chatBox.scrollHeight;
+  // Si no hay video seleccionado, le mandamos "0" al backend para activar el MODO GLOBAL
+  const videoContexto = videoSeleccionadoActualmente || 0;
+
+  const input = document.getElementById('chat-input');
+  const chatBox = document.getElementById('chat-box');
+  const mensaje = input.value.trim();
+
+  if (!mensaje) return;
+
+  const userBubble = document.createElement('div');
+  userBubble.className = 'chat-bubble chat-user';
+  userBubble.textContent = mensaje;
+  chatBox.appendChild(userBubble);
+
+  input.value = '';
+  chatBox.scrollTop = chatBox.scrollHeight;
+
+  const aiBubble = document.createElement('div');
+  aiBubble.className = 'chat-bubble chat-ai';
+  aiBubble.innerHTML = '<em><i class="fa-solid fa-circle-notch fa-spin"></i> Analizando el mapa de Moreno...</em>';
+  chatBox.appendChild(aiBubble);
+  chatBox.scrollTop = chatBox.scrollHeight;
+
   try {
-    const url = `${API_URL}/api/v1/video/${videoSeleccionadoActualmente}/preguntar`;
-    const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pregunta: mensaje }) });
+    // Acá inyectamos el ID (0 si es global, o el número de video si seleccionó uno)
+    const url = `${API_URL}/api/v1/video/${videoContexto}/preguntar`;
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pregunta: mensaje })
+    });
+
     if (!response.ok) throw new Error("Error en IA.");
-    const data = await response.json(); const textoChatCrudo = data.respuesta || data.mensaje || JSON.stringify(data);
+
+    const data = await response.json();
+    const textoChatCrudo = data.respuesta || data.mensaje || JSON.stringify(data);
+
     aiBubble.innerHTML = marked.parse(textoChatCrudo);
-  } catch (err) { aiBubble.innerHTML = `⚠️ <strong>Error.</strong> Verifica la consola F12.`; }
+  } catch (err) {
+    aiBubble.innerHTML = `⚠️ <strong>Error.</strong> Verifica la conexión con el contenedor de la API.`;
+  }
+
   chatBox.scrollTop = chatBox.scrollHeight;
 }

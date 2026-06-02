@@ -119,3 +119,38 @@ header h1 { font-size: 1.2rem; color: #fff; display: flex; align-items: center; 
 .btn-verificado:hover { background: #157347; }
 .btn-falso { background: #dc3545; border: 1px solid #dc3545; }
 .btn-falso:hover { background: #bb2d3b; }
+
+
+/* BARRA DE PROGRESO IA */
+.ia-progress-container {
+    width: 100%;
+    height: 4px;
+    background: #333;
+    border-radius: 2px;
+    overflow: hidden;
+    margin-bottom: 15px;
+    position: relative;
+}
+
+.ia-progress-bar {
+    height: 100%;
+    width: 30%;
+    background: var(--color-primario);
+    position: absolute;
+    left: -30%;
+    animation: ia-loading 1.5s infinite ease-in-out;
+}
+
+@keyframes ia-loading {
+    0% { left: -30%; width: 30%; }
+    50% { width: 60%; }
+    100% { left: 100%; width: 30%; }
+}
+
+.ia-progress-done {
+    width: 100%;
+    left: 0;
+    background: #198754; /* Verde éxito */
+    animation: none;
+    transition: background 0.3s ease;
+}

@@ -12,3 +12,4 @@ python-multipart
 minio
 httpx
 boto3
+openai

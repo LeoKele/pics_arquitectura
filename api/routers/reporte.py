@@ -2,12 +2,12 @@ import asyncio
 import json
 import logging
 
-import httpx
 import models
 from configs.config import settings
 from database import get_db
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
+from openai import AsyncOpenAI
 from pydantic import BaseModel
 from services.geo_service import obtener_contexto_geografico, obtener_nombre_calle
 from sqlalchemy import text
@@ -15,6 +15,11 @@ from sqlalchemy.orm import Session
 
 router = APIRouter()
 logger = logging.getLogger("api.reporte")
+
+# --- CLIENTE DEL PROFESOR ---
+ollama_client = AsyncOpenAI(
+    base_url=f"{settings.OLLAMA_URL}/v1", api_key=settings.OLLAMA_TOKEN
+)
 
 
 class GenerarReporteRequest(BaseModel):
@@ -46,7 +51,6 @@ async def generar_reporte(
         logger.info(f"--- INICIO GENERACIÓN REPORTE (Videos: {ids_v}) ---")
 
         async def generador_ollama():
-
             yield " "
 
             try:
@@ -101,7 +105,7 @@ async def generar_reporte(
                 for b in baches_agrupados:
                     try:
                         contexto = await asyncio.wait_for(
-                            obtener_contexto_geografico(b.lat, b.lng), timeout=5.0
+                            obtener_contexto_geografico(b.lat, b.lng), timeout=10.0
                         )
                     except (asyncio.TimeoutError, Exception):
                         contexto = {
@@ -206,36 +210,23 @@ async def generar_reporte(
 
                 Empezá directo con el título "INFORME TÉCNICO DE INSPECCIÓN VIAL - MORENO"."""
 
-                # 3. LLAMADO A OLLAMA (Comienza la máquina de escribir real)
                 texto_completo = ""
-                async with httpx.AsyncClient() as client:
-                    async with client.stream(
-                        "POST",
-                        f"{settings.OLLAMA_URL}/api/generate",
-                        json={
-                            "model": "llama3.2:3b",
-                            "prompt": prompt,
-                            "stream": True,
-                            "options": {
-                                "temperature": 0.1,
-                                "num_predict": 1500,
-                                "top_p": 0.9,
-                            },
-                        },
-                        timeout=600.0,
-                    ) as response:
-                        response.raise_for_status()
-                        async for chunk in response.aiter_lines():
-                            if chunk:
-                                try:
-                                    datos = json.loads(chunk)
-                                    pedacito = datos.get("response", "")
-                                    texto_completo += pedacito
-                                    yield pedacito  # Envia la letra al frontend en vivo
-                                except Exception:
-                                    pass
 
-                # 4. GUARDAR EN BD AL FINALIZAR
+                # Streaming con la SDK asíncrona de OpenAI apuntando al Cloudflare Tunnel
+                stream = await ollama_client.chat.completions.create(
+                    model="llama3.2:3b",
+                    messages=[{"role": "user", "content": prompt}],
+                    stream=True,
+                    temperature=0.1,
+                )
+
+                async for chunk in stream:
+                    delta = chunk.choices[0].delta.content or ""
+                    if delta:
+                        texto_completo += delta
+                        yield delta
+
+                # GUARDAR EN BD AL FINALIZAR
                 if texto_completo.strip():
                     nuevo_reporte = models.Reporte(contenido=texto_completo)
                     db.add(nuevo_reporte)
@@ -251,7 +242,6 @@ async def generar_reporte(
                 logger.error(f"Error en stream: {e}")
                 yield f"\n\n[Error interno: {str(e)}]"
 
-        # Retornamos el flujo continuo con headers para que Nginx no lo bloquee
         headers_stream = {
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",

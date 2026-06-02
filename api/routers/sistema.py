@@ -59,16 +59,18 @@ async def health_check(response: Response, db: Session = Depends(get_db)):
 
     # 4. Chequeo de Ollama
     try:
-        async with httpx.AsyncClient(timeout=2.0) as client:
-            res = await client.get(f"{settings.OLLAMA_URL}/")
-            if res.status_code == 200:
+        url_limpia = settings.OLLAMA_URL.rstrip("/")
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            res = await client.get(f"{url_limpia}/")
+            if res.status_code in [200, 401, 403, 404]:
                 servicios["ollama"] = "OK"
             else:
                 servicios["ollama"] = f"ERROR: Status {res.status_code}"
                 if estado_general == "VERDE":
                     estado_general = "AMARILLO"
-    except Exception:
-        servicios["ollama"] = "ERROR: Timeout/Desconectado"
+    except Exception as e:
+        servicios["ollama"] = "ERROR: Desconectado"
+        logger.error(f"Error en health check de Ollama: {str(e)}")
         if estado_general == "VERDE":
             estado_general = "AMARILLO"
 

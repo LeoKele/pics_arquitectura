@@ -36,7 +36,7 @@
     <h1><i class="fa-solid fa-map-location-dot"></i> Mapeo Vial Moreno</h1>
 
     <div style="display: flex; gap: 16px; align-items: center;">
-      <button id="btn-grafana" class="btn-grafana" style="display: none;" onclick="abrirLogsGrafana()" title="Ver Logs en Vivo de Kubernetes">
+      <button id="btn-grafana" class="btn-grafana" style="display: none; background-color: var(--color-primario); color: white; border: none; border-radius: 6px; padding: 8px 12px; font-weight: 600; cursor: pointer; transition: 0.3s;" onclick="abrirLogsGrafana()" title="Ver Logs en Vivo de Kubernetes">
         <i class="fa-solid fa-terminal"></i> Ver Logs
       </button>
 
@@ -106,15 +106,15 @@
       <div class="panel" id="panel-chat">
         <div class="panel-header">
           <span><i class="fa-solid fa-microchip"></i> Inteligencia Vial</span>
-          <span class="model-badge">Llama 3.2 (Local)</span>
+          <span class="model-badge">Llama 3.2 (Modo Global)</span>
         </div>
         <div class="panel-body" style="display: flex; flex-direction: column;">
           <div class="chat-messages" id="chat-box">
-            <div class="chat-bubble chat-ai">Hola. Soy Llama 3.2. Seleccioná un <strong>Video en la barra lateral izquierda</strong> o un <strong>pin rojo en el mapa</strong> para poder consultar sobre ese tramo.</div>
+            <div class="chat-bubble chat-ai">¡Hola! Soy tu asistente vial global. Podés preguntarme por <strong>todo el municipio de Moreno</strong>, o seleccionar un video específico en la barra lateral para enfocar el análisis.</div>
           </div>
           <div class="chat-input-area">
-            <input type="text" id="chat-input" placeholder="Consultá a Llama..." disabled onkeypress="if(event.key === 'Enter') enviarMensaje()">
-            <button id="btn-enviar-chat" disabled onclick="enviarMensaje()"><i class="fa-solid fa-paper-plane"></i></button>
+            <input type="text" id="chat-input" placeholder="Consultá sobre el estado vial..." onkeypress="if(event.key === 'Enter') enviarMensaje()">
+            <button id="btn-enviar-chat" onclick="enviarMensaje()"><i class="fa-solid fa-paper-plane"></i></button>
           </div>
         </div>
       </div>
