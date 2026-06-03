@@ -547,9 +547,9 @@ async function enviarMensaje() {
 }
 
 
-async function volverModoGlobal() {
-    // 1. Limpiamos la variable para que el próximo mensaje vaya a video 0 (Global)
-    window.videoSeleccionadoActualmente = null;
+function volverModoGlobal() {
+    // 1. EL ARREGLO: Limpiamos la variable EXACTA (sin el "window.")
+    videoSeleccionadoActualmente = null;
 
     // 2. Reseteamos la UI
     document.getElementById('badge-modo-chat').innerText = 'Llama 3.2 (Modo Global)';
@@ -563,7 +563,7 @@ async function volverModoGlobal() {
     document.getElementById('btn-consultar-reporte-ia').disabled = true;
     document.getElementById('btn-generar-reporte-ia').disabled = true;
 
-    // 3. Limpiamos el chat y damos el mensaje de bienvenida
+    // 3. Limpiamos el chat visualmente
     const chatBox = document.getElementById('chat-box');
     if (chatBox) {
         chatBox.innerHTML = `
@@ -576,18 +576,5 @@ async function volverModoGlobal() {
     const chatInput = document.getElementById('chat-input');
     if (chatInput) {
         chatInput.placeholder = "Consultá sobre el estado vial...";
-    }
-
-    // 4. EL TRUCO MAGNÍFICO: Le mandamos un mensaje oculto a la IA para resetearla
-    try {
-        // Le mandamos un comando interno al contexto 0 (Global)
-        await fetch(`${API_URL}/api/v1/video/0/preguntar`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ pregunta: "INSTRUCCIÓN DEL SISTEMA: Olvida el historial anterior. A partir de ahora responderás consultas globales sobre el municipio." })
-        });
-        // No dibujamos la respuesta en pantalla, es solo para "resetearle el cerebro" a Llama
-    } catch (e) {
-        console.log("Aviso: No se pudo resetear el contexto de la IA en el servidor.");
     }
 }
