@@ -74,7 +74,7 @@ async def obtener_contexto_geografico(lat: float, lng: float, radio_pois: int = 
         try:
             # Intento: Kumi Systems (Es un servidor alternativo que suele permitir IPs de Cloud)
             res = await client.post(
-                "https://overpass.kumi.systems/api/interpreter", data={"data": query}
+                "https://overpass-api.de/api/interpreter", data={"data": query}
             )
             if res.status_code == 200:
                 data = res.json()
