@@ -37,8 +37,33 @@ body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background:
 .status-ok { color: #3dff7a; }
 .status-error { color: #ff3d3d; }
 
-.btn-grafana { background: #1a1a1a; color: #ff9900; border: 1px solid #ff9900; padding: 6px 12px; border-radius: 20px; font-size: 0.85rem; font-weight: bold; cursor: pointer; transition: 0.2s; display: flex; align-items: center; gap: 8px; text-decoration: none;}
-.btn-grafana:hover { background: #ff9900; color: #000; }
+#btn-grafana {
+    background-color: #1a1a1a;
+    color: #e0e0e0;
+    border: 1px solid #2a2a2a;
+    border-radius: 50px;
+    padding: 6px 16px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-decoration: none;
+}
+
+
+#btn-grafana:hover {
+    background-color: #2a2a2a;
+    border-color: #333;
+    color: #ffffff;
+}
+
+#btn-grafana i {
+    color: #00aaff;
+    font-size: 1rem;
+}
 
 .btn-logout { background: transparent; border: none; color: #888; cursor: pointer; margin-left: 10px; transition: 0.2s; }
 .btn-logout:hover { color: var(--color-peligro); }

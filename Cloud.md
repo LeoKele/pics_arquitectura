@@ -141,6 +141,9 @@ Cloud, los podés volver a bajar a 1 solo obrero tirando
 kubectl scale deploy/worker-preprocesamiento --replicas=1
 kubectl scale deploy/worker-inferencia --replicas=1
 
+MATAR UN SERVICIO PARA VER HEALTH STATUS
+Paso 1:
+kubectl scale deployment redis-queue --replicas=0
 
-Implementar CI/CD (Integración Continua y Despliegue Continuo)
-
+Paso 2: Levantarlo
+kubectl scale deployment redis-queue --replicas=1
