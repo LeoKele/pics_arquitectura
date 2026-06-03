@@ -30,17 +30,30 @@ window.onload = () => {
   }
 };
 
-function procesarLogin() {
+async function procesarLogin() {
   const user = document.getElementById('login-user').value.trim().toLowerCase();
   const pass = document.getElementById('login-pass').value.trim();
 
-  if (user === 'admin' && pass === 'admin') {
-    localStorage.setItem('pics_rol', 'admin');
-    iniciarDashboard('admin');
-  } else if (user === 'operador' && pass === 'operador') {
-    localStorage.setItem('pics_rol', 'operador');
-    iniciarDashboard('operador');
-  } else {
+  try {
+    const response = await fetch(`${API_URL}/api/v1/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: user, password: pass })
+    });
+
+    if (!response.ok) {
+        throw new Error("Credenciales inválidas");
+    }
+
+    const data = await response.json();
+    
+    localStorage.setItem('pics_token', data.access_token);
+    localStorage.setItem('pics_rol', data.rol);
+    
+    document.getElementById('login-error').style.display = 'none';
+    iniciarDashboard(data.rol);
+
+  } catch (error) {
     document.getElementById('login-error').style.display = 'block';
   }
 }
