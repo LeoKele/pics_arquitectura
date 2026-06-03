@@ -307,7 +307,7 @@ async def preguntar_a_video(
                     f"Sos el asistente virtual de infraestructura vial de la Municipalidad de Moreno.\n\n"
                     f"--- DATOS REALES DE {contexto_str.upper()} ---\n"
                     f"Cantidad total de baches detectados: {cantidad}\n"
-                    f"Coordenadas GPS centrales: Lat {lat}, Lng {lng}\n"
+                    f"Ubicacion: Lat {lat}, Lng {lng}\n"
                     f"Resumen técnico de la zona: {reporte_texto}\n"
                     f"-----------------------------------------\n\n"
                     "REGLAS DE COMPORTAMIENTO (CUMPLIR ESTRICTAMENTE):\n"
