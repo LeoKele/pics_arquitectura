@@ -40,4 +40,4 @@ jobs:
     - name: Desplegar en Kubernetes
       run: |
         IMAGE_TAG="us-central1-docker.pkg.dev/pics-moreno-cloud/pics-repo/frontend:v-${GITHUB_SHA::7}"
-        kubectl set image deployment/frontend-dashboard *= $IMAGE_TAG
+        kubectl set image deployment/frontend-dashboard "*=$IMAGE_TAG"

@@ -1,5 +1,4 @@
 name: Deploy API to GKE
-# Cuando dejemos de laburar en updates hay q pasarlo a main :)
 on:
   push:
     branches:
@@ -39,4 +38,4 @@ jobs:
     - name: Desplegar en Kubernetes
       run: |
         IMAGE_TAG="us-central1-docker.pkg.dev/pics-moreno-cloud/pics-repo/api-fastapi:v-${GITHUB_SHA::7}"
-        kubectl set image deployment/api-fastapi *= $IMAGE_TAG
+        kubectl set image deployment/api-fastapi "*=$IMAGE_TAG"
