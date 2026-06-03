@@ -1,6 +1,10 @@
 import logging
+import os
 from datetime import datetime
-
+import hashlib
+import jwt
+from datetime import datetime, timedelta
+from pydantic import BaseModel
 import httpx
 import models
 from configs.config import settings
@@ -125,3 +129,33 @@ def obtener_inventario_archivos(db: Session = Depends(get_db)):
     except Exception as e:
         logger.error(f"Error en inventario: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+# --- CONFIGURACIÓN DE SEGURIDAD ---
+SECRET_KEY = os.getenv("JWT_SECRET_KEY")
+ALGORITHM = "HS256"
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+def hashear_password(password: str):
+    return hashlib.sha256(password.encode()).hexdigest()
+
+@app.post("/api/v1/login")
+def login(req: LoginRequest, db: Session = Depends(get_db)):
+    user = db.query(Usuario).filter(Usuario.username == req.username).first()
+    
+    if not user or user.password_hash != hashear_password(req.password):
+        raise HTTPException(status_code=401, detail="Usuario o contraseña incorrectos")
+    
+    payload = {
+        "sub": user.username,
+        "rol": user.rol,
+        "exp": datetime.utcnow() + timedelta(hours=12) # El token dura 12 horas
+    }
+    token = jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+    
+    return {
+        "access_token": token, 
+        "rol": user.rol
+    }
