@@ -266,14 +266,22 @@ El sistema no se limita a ubicar puntos en un mapa, sino que convierte los datos
 *   **Score de Prioridad Técnica:** Se calcula un puntaje matemático automatizado para priorizar la urgencia de bacheo/pavimentación en cada tramo:
     $$\text{Score} = \left( \text{daños\_totales} + 3\text{ (si calle\_tierra)} + 5\text{ (cercanía a POIs)} \right) \times 1.5\text{ (si es Ruta/Avenida)}$$
 
+<<<<<<< HEAD
 ### 6.2 Decisión del Reporte: Prompt Defensivo y Mitigación de Alucinaciones
+=======
+### 7.2 Decisión del Reporte: Prompt Defensivo y Mitigación de Alucinaciones
+>>>>>>> 8641934920672a498504b03e677721a8c0733036
 Para asegurar que el modelo de lenguaje genere un informe ejecutivo útil, formal y alineado con los datos de producción de la base de datos sin alucinar o filtrar métricas internas de desarrollo, se implementaron técnicas de **Prompt Defensivo** en `api/routers/reporte.py`:
 *   **Regla de Ocultamiento de Métricas:** Se prohíbe explícitamente el uso de las palabras "Score", "Puntaje" o números decimales en el reporte final. El score calculado en PostGIS sirve únicamente para que la IA priorice el ordenamiento estructural del texto de mayor a menor urgencia, ocultando la métrica cuantitativa interna a fin de ofrecer una redacción orgánica de carácter ejecutivo.
 *   **Restricción del Vocabulario de Obra Pública:** Se instruye al modelo a utilizar descripciones formales ("tramos de calzada natural/tierra") y se le prohíbe escribir el conteo directo genérico en su formato crudo (ej: "3 calle tierra").
 *   **Justificación Contextual por POI:** El prompt defensivo obliga al modelo a que cada propuesta urgente de bacheo deba estar justificada citando el POI circundante real detectado (ej: Escuela, Hospital). Esto previene que el LLM invente justificaciones abstractas o recomiende reparaciones sin soporte empírico.
 *   **Prompting del Asistente Vial (`/preguntar`):** En `api/routers/video.py` se implementa un prompt maestro estructurado para restringir las interacciones conversacionales, prohibiendo responder preguntas ajenas al dominio de infraestructura vial y obligando al asistente a responder con un saludo fijo determinista ante aperturas informales de chat.
 
+<<<<<<< HEAD
 ### 6.3 Flexibilidad de Cómputo e Integración con Clústeres Externos
+=======
+### 7.3 Flexibilidad de Cómputo e Integración con Clústeres Externos
+>>>>>>> 8641934920672a498504b03e677721a8c0733036
 El despliegue de **Ollama** con el modelo `llama3.2:3b` se ejecuta en contenedores. El sistema está diseñado de forma desacoplada y flexible respecto al hardware:
 *   **Ajuste de Temperatura a 0.1:** Se fija la temperatura en `0.1` de forma estricta, reduciendo las bifurcaciones y permitiendo que la inferencia sea más predecible y que el modelo siga la estructura definida en el prompt.
 
@@ -303,6 +311,7 @@ El repositorio de la arquitectura de software cuenta con un pipeline de CI/CD au
 5.  **Build & Push:** Compila las imágenes utilizando los Dockerfiles y las publica en el repositorio remoto en la nube.
 6.  **Despliegue Continuo (Rolling Update):** Conecta con el clúster GKE usando `google-github-actions/get-gke-credentials@v2` y ejecuta `kubectl set image` para actualizar las imágenes activas en los contenedores del cluster de GKE sin caída del servicio.
 
+<<<<<<< HEAD
 ### 7.3 Auto-escalado Basado en Eventos (KEDA)
 La arquitectura cuenta con un sistema de escalado dinámico para los nodos de procesamiento (workers), implementado a través de KEDA (Kubernetes Event-driven Autoscaling). 
 
@@ -316,6 +325,9 @@ Cuando el sistema no registra videos pendientes en la base de datos en memoria, 
 
 
 ### 7.4 Manifiestos y Despliegue en Kubernetes
+=======
+### 7.3 Manifiestos y Despliegue en Kubernetes
+>>>>>>> 8641934920672a498504b03e677721a8c0733036
 El despliegue de la infraestructura está modulado en archivos YAML localizados en el directorio `pics_proyecto/k8s/`:
 *   `01-secretos.yaml`: Almacena de forma codificada las credenciales de base de datos y llaves de MinIO.
 *   `02-minio.yaml`: Despliega el almacenamiento de objetos y sus servicios.
@@ -325,7 +337,10 @@ El despliegue de la infraestructura está modulado en archivos YAML localizados 
 *   `06-workers.yaml`: Configura la escala de réplicas de los Workers de preprocesamiento e inferencia.
 *   `07-frontend.yaml`: Sirve el dashboard e interfaz web interactiva del sistema.
 *   `08-grafana.yaml`: Habilita el visualizador de telemetría y logs recolectados por Loki.
+<<<<<<< HEAD
 *   `keda-workers.yaml`: Permite el auto-escalado basado en eventos dinamicos de los nodos de procesamiento.
+=======
+>>>>>>> 8641934920672a498504b03e677721a8c0733036
 
 ---
 
