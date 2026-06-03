@@ -549,34 +549,42 @@ async function enviarMensaje() {
 
 function volverModoGlobal() {
     // 1. Limpiar la variable global de selección 
-    // (Ajustá el nombre de esta variable si en tu código se llama distinto, ej: deteccionActiva o currentVideo)
     window.videoSeleccionadoActualmente = null;
 
-    // 2. Actualizar la cabecera del chat
+    // 2. BORRAR LA MEMORIA DE LA IA (Historial)
+    // Ajustá "historialChat" por el nombre real del arreglo que uses en enviarMensaje()
+    if (typeof historialChat !== 'undefined') {
+        historialChat = [];
+    } else if (typeof mensajes !== 'undefined') {
+        mensajes = [];
+    }
+
+    // 3. Actualizar la cabecera del chat
     document.getElementById('badge-modo-chat').innerText = 'Llama 3.2 (Modo Global)';
     document.getElementById('btn-modo-global').style.display = 'none';
 
-    // 3. Resetear la pantalla del reproductor de video
+    // 4. Resetear la pantalla del reproductor de video
     const videoScreen = document.getElementById('video-screen');
     if (videoScreen) {
         videoScreen.innerHTML = '<p>Seleccioná un Video en la barra lateral o un pin en el mapa para activar el análisis.</p>';
     }
 
-    // 4. Deshabilitar los botones de Reporte (porque ya no hay video seleccionado)
+    // 5. Deshabilitar los botones de Reporte (porque ya no hay video seleccionado)
     document.getElementById('btn-consultar-reporte-ia').disabled = true;
     document.getElementById('btn-generar-reporte-ia').disabled = true;
 
-    // 5. Darle feedback visual al usuario en el chat
+    // 6. Limpiar el chat visualmente y dar el mensaje de bienvenida
     const chatBox = document.getElementById('chat-box');
     if (chatBox) {
-        chatBox.innerHTML += `
+        // ATENCIÓN: Usamos "=" en lugar de "+=" para borrar los mensajes viejos de la pantalla
+        chatBox.innerHTML = `
             <div class="chat-bubble chat-ai">
                 <i class="fa-solid fa-earth-americas"></i> Volvimos al <strong>Modo Global</strong>. Ya podés consultarme estadísticas, zonas críticas y datos de todo el municipio de Moreno.
             </div>`;
         chatBox.scrollTop = chatBox.scrollHeight;
     }
 
-    // 6. Resetear el texto del input de chat
+    // 7. Resetear el texto del input de chat
     const chatInput = document.getElementById('chat-input');
     if (chatInput) {
         chatInput.placeholder = "Consultá sobre el estado vial...";
