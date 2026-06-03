@@ -13,7 +13,7 @@ from dependencias import minio_client, r
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import text
 from sqlalchemy.orm import Session
-from db.models import Usuario
+from models import Usuario
 
 router = APIRouter()
 logger = logging.getLogger("api.sistema")
