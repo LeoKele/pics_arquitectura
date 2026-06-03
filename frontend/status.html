@@ -27,38 +27,48 @@
             <h2>Métricas de Infraestructura</h2>
             
             <div class="service-item" id="srv-api">
-                <div class="service-name">
-                    <i class="fa-solid fa-server"></i> FastAPI (Core)
+                <div class="service-header">
+                    <div class="service-name"><i class="fa-solid fa-server"></i> FastAPI (Core)</div>
+                    <div class="service-state state-loading">Consultando...</div>
                 </div>
-                <div class="service-state state-loading">Consultando...</div>
+                <div class="uptime-bars" id="bars-api"></div>
+                <div class="uptime-labels"><span>90 days ago</span><span class="uptime-pct">99.9% uptime</span><span>Today</span></div>
             </div>
 
             <div class="service-item" id="srv-postgresql">
-                <div class="service-name">
-                    <i class="fa-solid fa-database"></i> PostgreSQL (Cloud SQL)
+                <div class="service-header">
+                    <div class="service-name"><i class="fa-solid fa-database"></i> PostgreSQL (Cloud SQL)</div>
+                    <div class="service-state state-loading">Consultando...</div>
                 </div>
-                <div class="service-state state-loading">Consultando...</div>
+                <div class="uptime-bars" id="bars-postgresql"></div>
+                <div class="uptime-labels"><span>90 days ago</span><span class="uptime-pct">99.9% uptime</span><span>Today</span></div>
             </div>
 
             <div class="service-item" id="srv-redis">
-                <div class="service-name">
-                    <i class="fa-solid fa-memory"></i> Redis (Cola de Mensajes)
+                <div class="service-header">
+                    <div class="service-name"><i class="fa-solid fa-memory"></i> Redis (Cola de Mensajes)</div>
+                    <div class="service-state state-loading">Consultando...</div>
                 </div>
-                <div class="service-state state-loading">Consultando...</div>
+                <div class="uptime-bars" id="bars-redis"></div>
+                <div class="uptime-labels"><span>90 days ago</span><span class="uptime-pct">99.9% uptime</span><span>Today</span></div>
             </div>
 
             <div class="service-item" id="srv-minio">
-                <div class="service-name">
-                    <i class="fa-solid fa-box-archive"></i> MinIO (Almacenamiento de Videos)
+                <div class="service-header">
+                    <div class="service-name"><i class="fa-solid fa-box-archive"></i> MinIO (Almacenamiento)</div>
+                    <div class="service-state state-loading">Consultando...</div>
                 </div>
-                <div class="service-state state-loading">Consultando...</div>
+                <div class="uptime-bars" id="bars-minio"></div>
+                <div class="uptime-labels"><span>90 days ago</span><span class="uptime-pct">99.9% uptime</span><span>Today</span></div>
             </div>
 
             <div class="service-item" id="srv-ollama">
-                <div class="service-name">
-                    <i class="fa-solid fa-brain"></i> Ollama (IA Llama 3.2)
+                <div class="service-header">
+                    <div class="service-name"><i class="fa-solid fa-brain"></i> Ollama (IA Llama 3.2)</div>
+                    <div class="service-state state-loading">Consultando...</div>
                 </div>
-                <div class="service-state state-loading">Consultando...</div>
+                <div class="uptime-bars" id="bars-ollama"></div>
+                <div class="uptime-labels"><span>90 days ago</span><span class="uptime-pct">99.9% uptime</span><span>Today</span></div>
             </div>
         </div>
 
