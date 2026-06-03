@@ -6,7 +6,8 @@ spec:
   scaleTargetRef:
     name: worker-preprocesamiento 
   minReplicaCount: 0             # Si no hay videos, se apaga (0)
-  maxReplicaCount: 3             
+  maxReplicaCount: 3
+  cooldownPeriod: 1800            # Son 30 minutoss 
   triggers:
   - type: redis
     metadata:
@@ -22,7 +23,8 @@ spec:
   scaleTargetRef:
     name: worker-inferencia      
   minReplicaCount: 0             
-  maxReplicaCount: 4             
+  maxReplicaCount: 4
+  cooldownPeriod: 1800              # Son 30 minutoss
   triggers:
   - type: redis
     metadata:
