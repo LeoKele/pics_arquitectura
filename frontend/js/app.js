@@ -153,6 +153,10 @@ function seleccionarVideoGeneral(vidId) {
     <div style="font-size:0.8rem; color:#aaa; margin-top:8px;">Seleccioná un pin en el mapa para ver la foto de la falla.</div>
   `;
   activarControlesChat(vidId);
+
+  // --- LAS DOS LÍNEAS NUEVAS ---
+  document.getElementById('badge-modo-chat').innerText = 'Llama 3.2 (Modo Local)';
+  document.getElementById('btn-modo-global').style.display = 'block';
 }
 
 function activarControlesChat(vidId) {
@@ -540,4 +544,35 @@ async function enviarMensaje() {
   }
 
   chatBox.scrollTop = chatBox.scrollHeight;
+}
+
+
+function volverModoGlobal() {
+    // 1. Limpiar la variable global de selección 
+    // (Ajustá el nombre de esta variable si en tu código se llama distinto, ej: deteccionActiva o currentVideo)
+    window.videoSeleccionadoActualmente = null;
+
+    // 2. Actualizar la cabecera del chat
+    document.getElementById('badge-modo-chat').innerText = 'Llama 3.2 (Modo Global)';
+    document.getElementById('btn-modo-global').style.display = 'none';
+
+    // 3. Resetear la pantalla del reproductor de video
+    const videoScreen = document.getElementById('video-screen');
+    if (videoScreen) {
+        videoScreen.innerHTML = '<p>Seleccioná un Video en la barra lateral o un pin en el mapa para activar el análisis.</p>';
+    }
+
+    // 4. Deshabilitar los botones de Reporte (porque ya no hay video seleccionado)
+    document.getElementById('btn-consultar-reporte-ia').disabled = true;
+    document.getElementById('btn-generar-reporte-ia').disabled = true;
+
+    // 5. Darle feedback visual al usuario en el chat
+    const chatBox = document.getElementById('chat-box');
+    if (chatBox) {
+        chatBox.innerHTML += `
+            <div class="chat-bubble chat-ai">
+                <i class="fa-solid fa-earth-americas"></i> Volvimos al <strong>Modo Global</strong>. Ya podés consultarme estadísticas, zonas críticas y datos de todo el municipio de Moreno.
+            </div>`;
+        chatBox.scrollTop = chatBox.scrollHeight;
+    }
 }
