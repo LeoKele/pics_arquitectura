@@ -575,4 +575,10 @@ function volverModoGlobal() {
             </div>`;
         chatBox.scrollTop = chatBox.scrollHeight;
     }
+
+    // 6. Resetear el texto del input de chat
+    const chatInput = document.getElementById('chat-input');
+    if (chatInput) {
+        chatInput.placeholder = "Consultá sobre el estado vial...";
+    }
 }
