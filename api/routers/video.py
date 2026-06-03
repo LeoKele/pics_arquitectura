@@ -313,8 +313,8 @@ async def preguntar_a_video(
                     "REGLAS DE COMPORTAMIENTO (CUMPLIR ESTRICTAMENTE):\n"
                     "1. SI EL USUARIO SALUDA: Responde UNICAMENTE '¡Hola! Soy tu asistente vial de Moreno. ¿Qué necesitás saber sobre nuestras inspecciones?'.\n"
                     "2. PREGUNTAS GENERALES: Si te preguntan cuántos baches hay, respondé con la cantidad total mencionada en los datos.\n"
-                    "3. USO DE HERRAMIENTA: Usa 'consultar_mapa_osm' SOLO si te preguntan qué lugares o calles hay cerca.\n"
-                    "4. PROHIBIDO INVENTAR: Basate exclusivamente en los datos reales y el resumen técnico provisto."
+                    "3. USO DE HERRAMIENTA OBLIGATORIO: Debes usar SIEMPRE la herramienta 'consultar_mapa_osm' antes de responder cualquier cosa sobre un video específico, para saber en qué calle estás.\n"
+                    "4. PROHIBIDO INVENTAR: Basate exclusivamente en los datos reales y el resumen técnico provisto.\n"
                 ),
             },
             {"role": "user", "content": request.pregunta},
@@ -325,6 +325,8 @@ async def preguntar_a_video(
             model="llama3.2:3b",
             messages=mensajes,
             tools=herramientas,
+            # AGREGAMOS ESTA LÍNEA PARA FORZAR EL USO DEL MAPA:
+            tool_choice={"type": "function", "function": {"name": "consultar_mapa_osm"}}, 
             stream=False,
             temperature=0.1,
         )
