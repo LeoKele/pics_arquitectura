@@ -70,10 +70,12 @@ function iniciarDashboard(rol) {
   document.getElementById('nombre-rol-header').innerText = rol === 'admin' ? 'Administrador' : 'Operador Municipal';
 
   setTimeout(() => { map.invalidateSize(); }, 300);
+  document.getElementById('admin-health-container').style.display = 'none';
+  document.getElementById('btn-grafana').style.setProperty('display', 'none', 'important');
 
   if (rol === 'admin') {
     document.getElementById('admin-health-container').style.display = 'inline-block';
-    document.getElementById('btn-grafana').style.display = 'flex';
+    document.getElementById('btn-grafana').style.setProperty('display', 'inline-flex', 'important');
     chequearHealth();
     intervaloHealth = setInterval(chequearHealth, 10000);
   }
