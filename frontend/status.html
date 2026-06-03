@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Estado del Sistema | PICS Moreno</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="css/status.css">
+</head>
+<body>
+
+    <div class="status-container">
+        <header class="status-header">
+            <div class="logo-area">
+                <i class="fa-solid fa-map-location-dot logo-icon"></i>
+                <h1>PICS Moreno <span>| Status</span></h1>
+            </div>
+            <a href="dashboard.html" class="btn-back"><i class="fa-solid fa-arrow-left"></i> Volver al Dashboard</a>
+        </header>
+
+        <div id="global-status" class="global-status status-loading">
+            <i id="global-icon" class="fa-solid fa-circle-notch fa-spin"></i>
+            <span id="global-text">Verificando estado de los sistemas...</span>
+        </div>
+
+        <div class="services-list">
+            <h2>Métricas de Infraestructura</h2>
+            
+            <div class="service-item" id="srv-api">
+                <div class="service-name">
+                    <i class="fa-solid fa-server"></i> FastAPI (Core)
+                </div>
+                <div class="service-state state-loading">Consultando...</div>
+            </div>
+
+            <div class="service-item" id="srv-postgresql">
+                <div class="service-name">
+                    <i class="fa-solid fa-database"></i> PostgreSQL (Cloud SQL)
+                </div>
+                <div class="service-state state-loading">Consultando...</div>
+            </div>
+
+            <div class="service-item" id="srv-redis">
+                <div class="service-name">
+                    <i class="fa-solid fa-memory"></i> Redis (Cola de Mensajes)
+                </div>
+                <div class="service-state state-loading">Consultando...</div>
+            </div>
+
+            <div class="service-item" id="srv-minio">
+                <div class="service-name">
+                    <i class="fa-solid fa-box-archive"></i> MinIO (Almacenamiento de Videos)
+                </div>
+                <div class="service-state state-loading">Consultando...</div>
+            </div>
+
+            <div class="service-item" id="srv-ollama">
+                <div class="service-name">
+                    <i class="fa-solid fa-brain"></i> Ollama (IA Llama 3.2)
+                </div>
+                <div class="service-state state-loading">Consultando...</div>
+            </div>
+        </div>
+
+        <footer class="status-footer">
+            Actualizado automáticamente cada 15 segundos.<br>
+            Infraestructura alojada en Google Kubernetes Engine (GKE).
+        </footer>
+    </div>
+
+    <script src="js/status.js"></script>
+</body>
+</html>
