@@ -49,3 +49,11 @@ class Telemetria(Base):
     tiempo = Column(Float)
 
     geometria = Column(Geometry("POINT", srid=4326))
+
+
+class Usuario(Base):
+    __tablename__ = "usuarios"
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String, unique=True, index=True)
+    password_hash = Column(String)
+    rol = Column(String) 

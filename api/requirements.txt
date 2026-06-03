@@ -13,3 +13,4 @@ minio
 httpx
 boto3
 openai
+PyJWT==2.8.0
