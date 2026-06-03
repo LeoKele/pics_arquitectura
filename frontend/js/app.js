@@ -191,7 +191,12 @@ async function abrirModalReporte(metodoAccion) {
     let urlReporte = ''; let opcionesFetch = {};
     if (metodoAccion === 'POST') {
         urlReporte = `${API_URL}/api/v1/reportes/generar`;
-        opcionesFetch = { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ video_id: videoSeleccionadoActualmente }) };
+        opcionesFetch = { 
+            method: 'POST', 
+            headers: { 'Content-Type': 'application/json' }, 
+            body: JSON.stringify({ video_ids: [videoSeleccionadoActualmente] }) 
+        };
+
     } else {
         urlReporte = `${API_URL}/api/v1/reporte/${videoSeleccionadoActualmente}`;
         opcionesFetch = { method: 'GET', headers: { 'Content-Type': 'application/json' } };
