@@ -547,36 +547,25 @@ async function enviarMensaje() {
 }
 
 
-function volverModoGlobal() {
-    // 1. Limpiar la variable global de selección 
+async function volverModoGlobal() {
+    // 1. Limpiamos la variable para que el próximo mensaje vaya a video 0 (Global)
     window.videoSeleccionadoActualmente = null;
 
-    // 2. BORRAR LA MEMORIA DE LA IA (Historial)
-    // Ajustá "historialChat" por el nombre real del arreglo que uses en enviarMensaje()
-    if (typeof historialChat !== 'undefined') {
-        historialChat = [];
-    } else if (typeof mensajes !== 'undefined') {
-        mensajes = [];
-    }
-
-    // 3. Actualizar la cabecera del chat
+    // 2. Reseteamos la UI
     document.getElementById('badge-modo-chat').innerText = 'Llama 3.2 (Modo Global)';
     document.getElementById('btn-modo-global').style.display = 'none';
 
-    // 4. Resetear la pantalla del reproductor de video
     const videoScreen = document.getElementById('video-screen');
     if (videoScreen) {
         videoScreen.innerHTML = '<p>Seleccioná un Video en la barra lateral o un pin en el mapa para activar el análisis.</p>';
     }
 
-    // 5. Deshabilitar los botones de Reporte (porque ya no hay video seleccionado)
     document.getElementById('btn-consultar-reporte-ia').disabled = true;
     document.getElementById('btn-generar-reporte-ia').disabled = true;
 
-    // 6. Limpiar el chat visualmente y dar el mensaje de bienvenida
+    // 3. Limpiamos el chat y damos el mensaje de bienvenida
     const chatBox = document.getElementById('chat-box');
     if (chatBox) {
-        // ATENCIÓN: Usamos "=" en lugar de "+=" para borrar los mensajes viejos de la pantalla
         chatBox.innerHTML = `
             <div class="chat-bubble chat-ai">
                 <i class="fa-solid fa-earth-americas"></i> Volvimos al <strong>Modo Global</strong>. Ya podés consultarme estadísticas, zonas críticas y datos de todo el municipio de Moreno.
@@ -584,9 +573,21 @@ function volverModoGlobal() {
         chatBox.scrollTop = chatBox.scrollHeight;
     }
 
-    // 7. Resetear el texto del input de chat
     const chatInput = document.getElementById('chat-input');
     if (chatInput) {
         chatInput.placeholder = "Consultá sobre el estado vial...";
+    }
+
+    // 4. EL TRUCO MAGNÍFICO: Le mandamos un mensaje oculto a la IA para resetearla
+    try {
+        // Le mandamos un comando interno al contexto 0 (Global)
+        await fetch(`${API_URL}/api/v1/video/0/preguntar`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pregunta: "INSTRUCCIÓN DEL SISTEMA: Olvida el historial anterior. A partir de ahora responderás consultas globales sobre el municipio." })
+        });
+        // No dibujamos la respuesta en pantalla, es solo para "resetearle el cerebro" a Llama
+    } catch (e) {
+        console.log("Aviso: No se pudo resetear el contexto de la IA en el servidor.");
     }
 }
