@@ -228,7 +228,7 @@ async function abrirModalReporte(metodoAccion) {
             barra.className = 'ia-progress-done';
         }
     }
-    // LÓGICA NORMAL (GET de un reporte ya guardado)
+    // LÓGICA NORMAL
     else {
         const data = await response.json();
         const textoCrudo = data.contenido || data.reporte || data.texto || data.respuesta || JSON.stringify(data);
