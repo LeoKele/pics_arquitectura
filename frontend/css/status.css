@@ -36,3 +36,28 @@ body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background:
 
 /* Footer */
 .status-footer { text-align: center; margin-top: 40px; color: #555; font-size: 0.85rem; }
+
+
+/* Rediseño de las cajas para las barras */
+.service-item { display: flex; flex-direction: column; gap: 12px; }
+.service-header { display: flex; justify-content: space-between; align-items: center; width: 100%; }
+
+/* Barras Lemon Cash Style */
+.uptime-bars { display: flex; gap: 3px; height: 35px; width: 100%; justify-content: space-between; align-items: center; }
+.uptime-bar { flex: 1; height: 100%; border-radius: 2px; transition: 0.3s; background: #222; }
+.uptime-bar:hover { opacity: 0.7; cursor: crosshair; }
+
+.bar-ok { background: #198754; }      /* Verde */
+.bar-warning { background: #ffc107; } /* Amarillo */
+.bar-error { background: #dc3545; }   /* Rojo */
+.bar-loading { background: #333; animation: pulse 1.5s infinite; }
+
+/* Textos de 90 days / Today */
+.uptime-labels { display: flex; justify-content: space-between; font-size: 0.75rem; color: #666; width: 100%; border-top: 1px solid #222; padding-top: 8px; }
+.uptime-pct { color: #aaa; }
+
+@keyframes pulse {
+    0% { opacity: 0.4; }
+    50% { opacity: 1; }
+    100% { opacity: 0.4; }
+}

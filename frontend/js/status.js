@@ -48,8 +48,10 @@ async function checkSystemHealth() {
 
 function actualizarServicio(idElemento, estado) {
     const divEstado = document.querySelector(`#${idElemento} .service-state`);
-    if (!divEstado) return;
+    const divBarras = document.querySelector(`#${idElemento} .uptime-bars`);
+    if (!divEstado || !divBarras) return;
 
+    // Actualizar Texto
     if (estado === 'OK') {
         divEstado.className = 'service-state state-ok';
         divEstado.innerHTML = 'Operativo';
@@ -57,6 +59,22 @@ function actualizarServicio(idElemento, estado) {
         divEstado.className = 'service-state state-error';
         divEstado.innerHTML = 'Fuera de línea';
     }
+
+    // Dibujar las 90 barritas (89 históricas mockeadas + 1 real de hoy)
+    let barrasHTML = '';
+    const totalBarras = 60; // Ponemos 60 para que entren bien en la pantalla
+    
+    for (let i = 0; i < totalBarras - 1; i++) {
+        // Simulamos un historial perfecto (todo verde)
+        barrasHTML += `<div class="uptime-bar bar-ok" title="Histórico: Operativo"></div>`;
+    }
+
+    // LA ÚLTIMA BARRA ES EL ESTADO REAL EN VIVO DE TU API
+    const claseHoy = estado === 'OK' ? 'bar-ok' : 'bar-error';
+    const textoHoy = estado === 'OK' ? 'Hoy: Operativo' : 'Hoy: CAÍDO';
+    barrasHTML += `<div class="uptime-bar ${claseHoy}" title="${textoHoy}" style="box-shadow: 0 0 8px ${estado === 'OK' ? '#198754' : '#dc3545'};"></div>`;
+
+    divBarras.innerHTML = barrasHTML;
 }
 
 // Arrancar al cargar la página y repetir cada 15 segundos
