@@ -104,13 +104,18 @@ async def generar_reporte(
 
                 for b in baches_agrupados:
                     try:
+                        # --- EL FRENO MÁGICO PARA QUE OSM NO NOS BLOQUEE ---
+                        await asyncio.sleep(1.2)
+                        
                         contexto = await asyncio.wait_for(
                             obtener_contexto_geografico(b.lat, b.lng), timeout=10.0
                         )
-                    except (asyncio.TimeoutError, Exception):
+                    except (asyncio.TimeoutError, Exception) as e:
+                        # Ahora si falla, lo vemos en la consola
+                        logger.error(f"OSM falló para {b.lat}, {b.lng}. Motivo: {e}") 
                         contexto = {
                             "calle": f"Zona GPS {b.lat:.4f}, {b.lng:.4f}",
-                            "tipo_calle": "Vía desconocida",
+                            "tipo_calle": "Vía sin mapear",
                             "calles_cruzadas": [],
                             "pois_cercanos": [],
                         }
