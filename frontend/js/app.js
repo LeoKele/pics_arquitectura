@@ -73,7 +73,7 @@ function iniciarDashboard(rol) {
 
   if (rol === 'admin') {
     document.getElementById('admin-health-container').style.display = 'inline-block';
-    document.getElementById('btn-grafana').style.display = 'inline-block';
+    document.getElementById('btn-grafana').style.display = 'flex';
     chequearHealth();
     intervaloHealth = setInterval(chequearHealth, 10000);
   }
