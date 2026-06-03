@@ -1,7 +1,7 @@
 import asyncio
 import json
 import logging
-
+import re
 import models
 from configs.config import settings
 from database import get_db
@@ -175,7 +175,16 @@ async def generar_reporte(
                     detalle_linea = f"- {calle} ({info['tipo']}): {conteo_str}{pois_str}. [Score Prioridad: {score:.1f}]"
                     detalles_contexto_vial.append(detalle_linea)
 
-                contexto_hallazgos_str = "\n".join(detalles_contexto_vial)
+
+                detalles_limpios = []
+                for detalle in detalles_contexto_vial:
+                    # Borra "[Score Prioridad: X.X]"
+                    detalle_sin_score = re.sub(r'\[Score Prioridad:.*?\]', '', detalle)
+                    # Borra "(Vía desconocida)"
+                    detalle_limpio = detalle_sin_score.replace('(Vía desconocida)', '').strip()
+                    detalles_limpios.append(detalle_limpio)
+
+                contexto_hallazgos_str = "\n".join(detalles_limpios)
 
                 prompt = f"""
                 Sos un inspector vial experto del municipio de Moreno.
