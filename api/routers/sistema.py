@@ -141,7 +141,7 @@ class LoginRequest(BaseModel):
 def hashear_password(password: str):
     return hashlib.sha256(password.encode()).hexdigest()
 
-@app.post("/api/v1/login")
+@router.post("/api/v1/login")
 def login(req: LoginRequest, db: Session = Depends(get_db)):
     user = db.query(Usuario).filter(Usuario.username == req.username).first()
     
