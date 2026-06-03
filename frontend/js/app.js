@@ -100,24 +100,27 @@ async function chequearHealth() {
     const data = await res.json();
     const dot = document.getElementById('health-dot');
     const text = document.getElementById('health-text');
-    const dropdown = document.getElementById('health-dropdown-content');
 
     dot.className = 'health-dot';
-    if (data.estado_general === 'VERDE') { dot.classList.add('dot-verde'); text.innerText = 'Servicios OK'; }
-    else if (data.estado_general === 'AMARILLO') { dot.classList.add('dot-amarillo'); text.innerText = 'Advertencia'; }
-    else { dot.classList.add('dot-rojo'); text.innerText = 'Error Crítico'; }
-
-    dropdown.innerHTML = '';
-    const diccIconos = { 'postgresql': '<i class="fa-solid fa-database"></i>', 'redis': '<i class="fa-solid fa-memory"></i>', 'minio': '<i class="fa-solid fa-box-archive"></i>', 'ollama': '<i class="fa-solid fa-brain"></i>' };
-    for (const [servicio, estado] of Object.entries(data.servicios)) {
-      const icon = diccIconos[servicio.toLowerCase()] || '<i class="fa-solid fa-server"></i>';
-      const colorClase = estado === 'OK' ? 'status-ok' : 'status-error';
-      const estadoHTML = estado === 'OK' ? '<i class="fa-solid fa-check"></i>' : '<i class="fa-solid fa-xmark"></i>';
-      dropdown.innerHTML += `<div class="service-item"><span>${icon} ${servicio.toUpperCase()}</span><span class="${colorClase}" title="${estado}">${estadoHTML}</span></div>`;
+    
+    if (data.estado_general === 'VERDE') { 
+        dot.classList.add('dot-verde'); 
+        text.innerText = 'Sistemas OK'; 
     }
+    else if (data.estado_general === 'AMARILLO') { 
+        dot.classList.add('dot-amarillo'); 
+        text.innerText = 'Advertencia'; 
+    }
+    else { 
+        dot.classList.add('dot-rojo'); 
+        text.innerText = 'Error Crítico'; 
+    }
+    
   } catch (e) {
-    document.getElementById('health-dot').className = 'health-dot dot-rojo'; document.getElementById('health-text').innerText = 'API Apagada';
-    document.getElementById('health-dropdown-content').innerHTML = `<div class="service-item"><span style="color:#ff3d3d;">Sin connection a FastAPI</span></div>`;
+    const dot = document.getElementById('health-dot');
+    const text = document.getElementById('health-text');
+    if(dot) dot.className = 'health-dot dot-rojo'; 
+    if(text) text.innerText = 'API Apagada';
   }
 }
 
