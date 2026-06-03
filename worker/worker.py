@@ -92,7 +92,6 @@ except Exception as e:
     exit(1)
 
 
-# Función para buscar la coordenada correcta
 def obtener_coordenada(datos_gps, tiempo_ms):
     if not datos_gps:
         return -34.65, -58.79
@@ -101,9 +100,7 @@ def obtener_coordenada(datos_gps, tiempo_ms):
     return punto_mas_cercano["lat"], punto_mas_cercano["lng"]
 
 
-# --- NUEVA FUNCIÓN: GEOCERCA DE MORENO ---
 def esta_en_moreno(lat, lng):
-    # Límites aproximados del Partido de Moreno (Rectángulo envolvente)
     LAT_NORTE = -34.5400  # Límite superior (San Miguel / José C. Paz)
     LAT_SUR = -34.7600  # Límite inferior (Dique Roggero / Marcos Paz)
     LNG_OESTE = -58.8900  # Límite izquierdo (Gral. Rodríguez)
@@ -150,7 +147,6 @@ while True:
             video.estado = "procesando"
             db.commit()
 
-            # 1. DESCARGAR EL JSON DE COORDENADAS
             nombre_base = video.nombre_archivo.replace("procesado_", "").rsplit(".", 1)[
                 0
             ]
@@ -166,7 +162,6 @@ while True:
                     datos_gps = json_completo.get("data", [])
                 logger.info(f"Éxito: Se cargaron {len(datos_gps)} puntos de GPS.")
 
-                # --- GUARDAR TODA LA TELEMETRÍA (SOLO EN MORENO) ---
                 logger.info(f"Procesando trayectoria de {len(datos_gps)} puntos GPS...")
                 puntos_guardados = 0
                 for punto in datos_gps:
@@ -175,7 +170,7 @@ while True:
                     tiempo_ms = punto.get("elapsed_ms", 0.0)
 
                     if lat is not None and lng is not None:
-                        if esta_en_moreno(lat, lng):  # <-- FILTRO GEOGRÁFICO
+                        if esta_en_moreno(lat, lng):  
                             nueva_telemetria = Telemetria(
                                 video_id=video_id,
                                 tiempo=float(tiempo_ms),
@@ -196,7 +191,6 @@ while True:
                     Detalles: {e}"""
                 )
 
-            # 2. PROCESAR FRAMES INDIVIDUALES CON YOLO
             if not minio_client.bucket_exists("detecciones"):
                 minio_client.make_bucket("detecciones")
 
@@ -207,7 +201,6 @@ while True:
                 )
             )
 
-            # --- ORDENAR FRAMES CRONOLÓGICAMENTE ---
             def extraer_tiempo(obj):
                 try:
                     return int(obj.object_name.split("_")[-1].split(".")[0])
@@ -236,7 +229,6 @@ while True:
                 except ValueError:
                     continue
 
-                # --- PATOVICA GEOGRÁFICO: Chequear antes de descargar ---
                 lat_frame, lng_frame = obtener_coordenada(datos_gps, tiempo_ms)
                 if not esta_en_moreno(lat_frame, lng_frame):
                     # Si cruzó a Merlo/Ituzaingó, ignoramos este frame
@@ -375,7 +367,6 @@ while True:
             if os.path.exists(ruta_json_local):
                 os.remove(ruta_json_local)
 
-            # --- LIMPIEZA DE MINIO ---
             try:
                 logger.info(f"Limpiando frames procesados del video {video_id}...")
                 objetos_a_borrar = minio_client.list_objects(

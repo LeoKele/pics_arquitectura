@@ -5,7 +5,6 @@ const MARGEN_EXTRA = 4;
 let intervaloHealth = null;
 let intervaloDatos = null;
 
-// Inicialización del Mapa
 const map = L.map('map').setView([-34.6441, -58.7894], 14);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap contributors', maxZoom: 19 }).addTo(map);
 
@@ -209,9 +208,7 @@ async function abrirModalReporte(metodoAccion) {
     }
     if (!response.ok) throw new Error("Error en el servidor.");
 
-    // LÓGICA DE MÁQUINA DE ESCRIBIR (STREAMING) PARA POST
     if (metodoAccion === 'POST') {
-        // Inyectamos la barra animada y el espacio para el texto
         body.innerHTML = `
             <div class="ia-progress-container">
                 <div id="barra-ia" class="ia-progress-bar"></div>
@@ -229,31 +226,24 @@ async function abrirModalReporte(metodoAccion) {
             const { done, value } = await reader.read();
             if (done) break; // Terminó de escribir
 
-            // Si es la primera palabra, borramos el "Analizando contexto..."
             if (textoAcumulado === "") {
                 document.getElementById('texto-stream').innerHTML = "";
             }
 
             textoAcumulado += decoder.decode(value, { stream: true });
 
-            // Lo mostramos con un cursor parpadeante al final
             document.getElementById('texto-stream').innerHTML = marked.parse(textoAcumulado) + '<span style="color:var(--color-primario);"> █</span>';
 
-            // Auto-scroll hacia abajo
             body.scrollTop = body.scrollHeight;
         }
 
-        // --- LA IA TERMINÓ ---
-        // Limpiamos el cursor cuadradito al final
         document.getElementById('texto-stream').innerHTML = marked.parse(textoAcumulado);
 
-        // Frenamos la barra y la pintamos de verde
         const barra = document.getElementById('barra-ia');
         if (barra) {
             barra.className = 'ia-progress-done';
         }
     }
-    // LÓGICA NORMAL
     else {
         const data = await response.json();
         const textoCrudo = data.contenido || data.reporte || data.texto || data.respuesta || JSON.stringify(data);
@@ -505,7 +495,6 @@ async function cargarDatos() {
 }
 
 async function enviarMensaje() {
-  // Si no hay video seleccionado, le mandamos "0" al backend para activar el MODO GLOBAL
   const videoContexto = videoSeleccionadoActualmente || 0;
 
   const input = document.getElementById('chat-input');
@@ -529,7 +518,6 @@ async function enviarMensaje() {
   chatBox.scrollTop = chatBox.scrollHeight;
 
   try {
-    // Acá inyectamos el ID (0 si es global, o el número de video si seleccionó uno)
     const url = `${API_URL}/api/v1/video/${videoContexto}/preguntar`;
 
     const response = await fetch(url, {
@@ -553,10 +541,8 @@ async function enviarMensaje() {
 
 
 function volverModoGlobal() {
-    // 1. EL ARREGLO: Limpiamos la variable EXACTA (sin el "window.")
     videoSeleccionadoActualmente = null;
 
-    // 2. Reseteamos la UI
     document.getElementById('badge-modo-chat').innerText = 'Llama 3.2 (Modo Global)';
     document.getElementById('btn-modo-global').style.display = 'none';
 
@@ -568,7 +554,6 @@ function volverModoGlobal() {
     document.getElementById('btn-consultar-reporte-ia').disabled = true;
     document.getElementById('btn-generar-reporte-ia').disabled = true;
 
-    // 3. Limpiamos el chat visualmente
     const chatBox = document.getElementById('chat-box');
     if (chatBox) {
         chatBox.innerHTML = `

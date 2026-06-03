@@ -131,7 +131,6 @@ def obtener_inventario_archivos(db: Session = Depends(get_db)):
         logger.error(f"Error en inventario: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-# --- CONFIGURACIÓN DE SEGURIDAD ---
 SECRET_KEY = os.getenv("JWT_SECRET_KEY")
 ALGORITHM = "HS256"
 

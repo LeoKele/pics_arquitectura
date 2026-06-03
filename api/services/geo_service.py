@@ -5,7 +5,6 @@ import httpx
 
 logger = logging.getLogger("api.geo_service")
 
-# 🧠 CACHÉ ESPACIAL
 _cache_osm_contexto = {}
 _cache_osm_nombres = {}
 
@@ -17,9 +16,7 @@ async def obtener_nombre_calle(lat: float, lng: float):
 
     headers = {"User-Agent": "PICS-UNLu-Research-Project/1.0 (contacto@unlu.edu.ar)"}
 
-    # 1. FIX: Aumentamos el timeout a 30.0 segundos
     async with httpx.AsyncClient(timeout=30.0, headers=headers) as client:
-        # Intento 1: Photon (Super amigable con Google Cloud IPs)
         try:
             res = await client.get(
                 f"https://photon.komoot.io/reverse?lon={lng}&lat={lat}"
@@ -56,10 +53,8 @@ async def obtener_contexto_geografico(lat: float, lng: float, radio_pois: int = 
     if clave_zona in _cache_osm_contexto:
         return _cache_osm_contexto[clave_zona]
 
-    # Obtenemos la calle principal
     calle_base = await obtener_nombre_calle(lat, lng)
 
-    # 2. FIX: Aumentamos el timeout interno de Overpass a 30 segundos
     query = f"""[out:json][timeout:30];
     (
       nwr(around:{radio_pois}, {lat}, {lng})["amenity"~"hospital|school|fire_station|police|clinic|pharmacy"];
@@ -69,10 +64,8 @@ async def obtener_contexto_geografico(lat: float, lng: float, radio_pois: int = 
     headers = {"User-Agent": "PICS-UNLu-Research-Project/1.0 (contacto@unlu.edu.ar)"}
     pois_encontrados = []
 
-    # 3. FIX: Aumentamos el timeout del cliente HTTP a 30.0 segundos
     async with httpx.AsyncClient(timeout=30.0, headers=headers) as client:
         try:
-            # Intento: Kumi Systems (Es un servidor alternativo que suele permitir IPs de Cloud)
             res = await client.post(
                 "https://overpass-api.de/api/interpreter", data={"data": query}
             )
@@ -103,7 +96,7 @@ async def obtener_contexto_geografico(lat: float, lng: float, radio_pois: int = 
         "calle": calle_base,
         "tipo_calle": "Vía urbana",
         "calles_cruzadas": [],
-        "pois_cercanos": pois_encontrados[:3],  # Máximo 3 POIs importantes
+        "pois_cercanos": pois_encontrados[:3],
         "resumen_contexto": calle_base,
     }
 

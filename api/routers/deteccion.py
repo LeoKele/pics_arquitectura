@@ -119,13 +119,11 @@ def auditar_deteccion(
 
             reentrenamiento_bucket = "backgrounds-reentrenamiento"
 
-            # --- BLOQUE 1: INTENTAR COPIAR ---
             try:
                 # Asegurar que el bucket de reentrenamiento exista
                 if not minio_client.bucket_exists(reentrenamiento_bucket):
                     minio_client.make_bucket(reentrenamiento_bucket)
 
-                # Copiar objeto limpio al bucket de reentrenamiento (mantiene ruta original)
                 source = CopySource("detecciones", deteccion.frame_minio_path)
                 minio_client.copy_object(
                     reentrenamiento_bucket, deteccion.frame_minio_path, source
@@ -138,7 +136,6 @@ def auditar_deteccion(
                     f"Error al intentar copiar la imagen a backgrounds-reentrenamiento: {e_copy}"
                 )
 
-            # --- BLOQUE 2: FORZAR EL BORRADO INDEPENDIENTE DE LA COPIA ---
             try:
                 # Borrar la imagen del bucket activo de detecciones
                 minio_client.remove_object("detecciones", deteccion.frame_minio_path)

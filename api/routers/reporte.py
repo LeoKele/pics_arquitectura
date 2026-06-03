@@ -16,7 +16,6 @@ from sqlalchemy.orm import Session
 router = APIRouter()
 logger = logging.getLogger("api.reporte")
 
-# --- CLIENTE DEL PROFESOR ---
 ollama_client = AsyncOpenAI(
     base_url=f"{settings.OLLAMA_URL}/v1", api_key=settings.OLLAMA_TOKEN
 )
@@ -105,7 +104,6 @@ async def generar_reporte(
 
                 for b in baches_agrupados:
                     try:
-                        # --- EL FRENO MÁGICO PARA QUE OSM NO NOS BLOQUEE ---
                         await asyncio.sleep(1.2)
                         
                         contexto = await asyncio.wait_for(
@@ -225,7 +223,6 @@ async def generar_reporte(
 
                 texto_completo = ""
 
-                # Streaming con la SDK asíncrona de OpenAI apuntando al Cloudflare Tunnel
                 stream = await ollama_client.chat.completions.create(
                     model="llama3.2:3b",
                     messages=[{"role": "user", "content": prompt}],
@@ -239,7 +236,6 @@ async def generar_reporte(
                         texto_completo += delta
                         yield delta
 
-                # GUARDAR EN BD AL FINALIZAR
                 if texto_completo.strip():
                     nuevo_reporte = models.Reporte(contenido=texto_completo)
                     db.add(nuevo_reporte)

@@ -212,7 +212,6 @@ async def preguntar_a_video(
     video_id: int, request: PreguntaRequest, db: Session = Depends(get_db)
 ):
     try:
-        # --- LÓGICA DE MODO GLOBAL VS MODO ESPECÍFICO ---
         if video_id == 0:
             # MODO GLOBAL: Todos los videos
             detecciones = (
@@ -267,17 +266,14 @@ async def preguntar_a_video(
             """)
             centroide = db.execute(query_centroide, {"v_id": video_id}).fetchone()
 
-        # --- CÁLCULO DE MÉTRICAS ---
         cantidad = len(detecciones)
 
-        # Le inyectamos un resumen del reporte para que la IA tenga contexto de las calles
         reporte_texto = (
             reporte.contenido[:1500]
             if reporte and reporte.contenido
             else "No hay reportes previos."
         )
 
-        # Coordenadas seguras (si no hay baches, apuntamos al centro de Moreno)
         lat = float(centroide[0]) if centroide and centroide[0] else -34.64
         lng = float(centroide[1]) if centroide and centroide[1] else -58.79
 
@@ -299,7 +295,6 @@ async def preguntar_a_video(
             }
         ]
 
-        # --- PROMPT MAESTRO ---
         mensajes = [
             {
                 "role": "system",
@@ -320,12 +315,10 @@ async def preguntar_a_video(
             {"role": "user", "content": request.pregunta},
         ]
 
-        # --- LLAMADO A OLLAMA ---
         respuesta_fase1 = await ollama_client.chat.completions.create(
             model="llama3.2:3b",
             messages=mensajes,
             tools=herramientas,
-            # AGREGAMOS ESTA LÍNEA PARA FORZAR EL USO DEL MAPA:
             tool_choice={"type": "function", "function": {"name": "consultar_mapa_osm"}}, 
             stream=False,
             temperature=0.1,
