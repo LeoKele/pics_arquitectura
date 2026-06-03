@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-fastapi
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: api-fastapi
+  template:
+    metadata:
+      labels:
+        app: api-fastapi
+    spec:
+      containers:
+        - name: api-fastapi
+          # Asegurate de que esta sea la ruta exacta de tu Artifact Registry
+          image: us-central1-docker.pkg.dev/pics-moreno-cloud/pics-repo/api-fastapi:v1
+          env:
+            - name: REDIS_HOST
+              value: "redis-queue"
+            - name: OLLAMA_URL
+              value: "http://ollama:11434"
+          envFrom:
+            - secretRef:
+                name: pics-secrets
+          ports:
+            - containerPort: 8000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-fastapi
+spec:
+  type: LoadBalancer
+  selector:
+    app: api-fastapi
+  ports:
+    - port: 8000
+      targetPort: 8000

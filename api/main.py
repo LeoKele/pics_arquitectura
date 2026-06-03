@@ -4,6 +4,7 @@ import time
 import models
 from database import engine
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from routers import deteccion, reporte, sistema, video
 
 # Logging
@@ -13,7 +14,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger("api")
 
-# Crea las tablas si no existen
 for intento in range(10):
     try:
         models.Base.metadata.create_all(bind=engine)
@@ -28,7 +28,14 @@ else:
 
 app = FastAPI(title="Mapeo Vial Moreno", version="1.1.4")
 
-# Registro de routers
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.include_router(sistema.router)
 app.include_router(video.router)
 app.include_router(deteccion.router)

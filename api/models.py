@@ -2,7 +2,7 @@ from datetime import datetime
 
 from database import Base
 from geoalchemy2 import Geometry
-from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, Column, DateTime, Float, ForeignKey, Integer, String, Text
 
 
 class Video(Base):
@@ -22,6 +22,7 @@ class Deteccion(Base):
     tipo_dano = Column(String)
     confianza = Column(Float)
     frame_minio_path = Column(String, nullable=True)
+    bbox = Column(JSON, nullable=True)
     estado_auditoria = Column(String, default="pendiente")
     fecha_deteccion = Column(DateTime, default=datetime.utcnow)
 
@@ -39,3 +40,13 @@ class ReporteVideo(Base):
     id = Column(Integer, primary_key=True)
     video_id = Column(Integer, ForeignKey("video.id"), nullable=True)
     reporte_id = Column(Integer, ForeignKey("reporte.id"), nullable=True)
+
+
+class Telemetria(Base):
+    __tablename__ = "telemetria"
+
+    id = Column(Integer, primary_key=True, index=True)
+    video_id = Column(String, index=True)
+    tiempo = Column(Float)
+
+    geometria = Column(Geometry("POINT", srid=4326))

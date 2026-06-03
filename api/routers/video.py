@@ -1,32 +1,54 @@
 import json
 import logging
 import traceback
+from typing import Any, Dict, List, Optional
 
-import httpx
 import models
 import schemas
 from configs.config import settings
 from database import get_db
-from dependencias import minio_client, r
+from dependencias import minio_client, r, s3_public_client
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from minio.error import S3Error
+from openai import AsyncOpenAI
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
-from sqlalchemy import text
 from services.geo_service import obtener_contexto_geografico
+from sqlalchemy import text
+from sqlalchemy.orm import Session
 
 router = APIRouter()
 logger = logging.getLogger("api.video")
 
+# --- CLIENTE DEL PROFESOR ---
+ollama_client = AsyncOpenAI(
+    base_url=f"{settings.OLLAMA_URL}/v1", api_key=settings.OLLAMA_TOKEN
+)
+
+
 class PreguntaRequest(BaseModel):
     pregunta: str
 
-@router.post(
-    "/api/v1/videos",
-    status_code=status.HTTP_202_ACCEPTED,
-    response_model=schemas.VideoResponse,
-)
-def subir_video(
+
+class IniciarUploadRequest(BaseModel):
+    filename: str
+    content_type: str
+
+
+class ParteFirmadaRequest(BaseModel):
+    filename: str
+    upload_id: str
+    part_number: int
+
+
+class FinalizarUploadRequest(BaseModel):
+    filename: str
+    upload_id: str
+    parts: List[Dict[str, Any]]
+    telemetria: Optional[List[Dict[str, Any]]] = []
+
+
+@router.post("/api/v1/videos/manual", status_code=status.HTTP_202_ACCEPTED)
+def subir_video_manual(
     video: UploadFile = File(...),
     metadata: UploadFile = File(...),
     db: Session = Depends(get_db),
@@ -76,15 +98,11 @@ def subir_video(
     db.add(nuevo_video)
     db.commit()
     db.refresh(nuevo_video)
-    logger.info(f"Video registrado en BD con ID: {nuevo_video.id}")
 
     try:
         r.rpush("cola_preprocesamiento", nuevo_video.id)
-        logger.info(f"Tarea encolada en Redis para video ID: {nuevo_video.id}")
     except Exception as e:
-        logger.error(
-            f"Error al enviar tarea a Redis para video ID {nuevo_video.id}: {e}"
-        )
+        logger.error(f"Error al enviar tarea a Redis: {e}")
 
     return {
         "mensaje": "Video y metadata recibidos correctamente",
@@ -93,20 +111,99 @@ def subir_video(
     }
 
 
+@router.post("/api/v1/videos/upload/iniciar", tags=["Videos Multipart"])
+def iniciar_upload_multipart(request: IniciarUploadRequest):
+    try:
+        if not minio_client.bucket_exists(settings.BUCKET_NAME):
+            minio_client.make_bucket(settings.BUCKET_NAME)
+        response = s3_public_client.create_multipart_upload(
+            Bucket=settings.BUCKET_NAME,
+            Key=request.filename,
+            ContentType=request.content_type,
+        )
+        return {"upload_id": response["UploadId"], "key": request.filename}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/api/v1/videos/upload/firmar-parte", tags=["Videos Multipart"])
+def firmar_parte(request: ParteFirmadaRequest):
+    try:
+        presigned_url = s3_public_client.generate_presigned_url(
+            ClientMethod="upload_part",
+            Params={
+                "Bucket": settings.BUCKET_NAME,
+                "Key": request.filename,
+                "UploadId": request.upload_id,
+                "PartNumber": request.part_number,
+            },
+            ExpiresIn=3600,
+        )
+        return {"url": presigned_url}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post(
+    "/api/v1/videos/upload/finalizar",
+    status_code=status.HTTP_202_ACCEPTED,
+    tags=["Videos Multipart"],
+)
+def finalizar_upload_multipart(
+    request: FinalizarUploadRequest, db: Session = Depends(get_db)
+):
+    try:
+        s3_public_client.complete_multipart_upload(
+            Bucket=settings.BUCKET_NAME,
+            Key=request.filename,
+            UploadId=request.upload_id,
+            MultipartUpload={"Parts": request.parts},
+        )
+        json_filename = request.filename.replace(".webm", ".json")
+
+        try:
+            s3_public_client.put_object(
+                Bucket=settings.BUCKET_NAME,
+                Key=json_filename,
+                Body=json.dumps(request.telemetria),
+                ContentType="application/json",
+            )
+        except Exception as e:
+            logger.error(f"Error guardando telemetría en MinIO: {e}")
+
+        nuevo_video = models.Video(
+            nombre_archivo=request.filename,
+            nombre_metadata=json_filename,
+            estado="pendiente",
+        )
+        db.add(nuevo_video)
+        db.commit()
+        db.refresh(nuevo_video)
+
+        try:
+            r.rpush("cola_preprocesamiento", nuevo_video.id)
+        except Exception as redis_e:
+            logger.error(f"Error al enviar tarea a Redis: {redis_e}")
+
+        return {
+            "mensaje": "Video y telemetría guardados",
+            "video_id": nuevo_video.id,
+            "estado": nuevo_video.estado,
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get(
     "/api/v1/videos/{video_id}",
     response_model=schemas.VideoStatusResponse,
     tags=["Monitoreo"],
 )
 def obtener_estado_video(video_id: int, db: Session = Depends(get_db)):
-    logger.info(f"Consultando estado del video ID: {video_id}")
-
     video = db.query(models.Video).filter(models.Video.id == video_id).first()
     if not video:
-        logger.warning(f"Video ID {video_id} no encontrado")
         raise HTTPException(status_code=404, detail="Video no encontrado")
-
-    logger.info(f"Video ID {video_id} → estado: {video.estado}")
     return {"id": video.id, "estado": video.estado}
 
 
@@ -114,45 +211,76 @@ def obtener_estado_video(video_id: int, db: Session = Depends(get_db)):
 async def preguntar_a_video(
     video_id: int, request: PreguntaRequest, db: Session = Depends(get_db)
 ):
-    """
-    Agente de IA Híbrido: Utiliza el reporte si existe, pero tiene la capacidad de 
-    consultar OpenStreetMap en tiempo real de forma autónoma si necesita más datos.
-    """
-
-    video = db.query(models.Video).filter(models.Video.id == video_id).first()
-    if not video:
-        raise HTTPException(status_code=404, detail="Video no encontrado")
-    if video.estado != "procesado":
-        raise HTTPException(status_code=400, detail="El video aún no fue procesado.")
-
     try:
-        
-        detecciones = db.query(models.Deteccion).filter(models.Deteccion.video_id == video_id).all()
+        # --- LÓGICA DE MODO GLOBAL VS MODO ESPECÍFICO ---
+        if video_id == 0:
+            # MODO GLOBAL: Todos los videos
+            detecciones = (
+                db.query(models.Deteccion)
+                .filter(models.Deteccion.estado_auditoria != "falso_positivo")
+                .all()
+            )
+            reporte = (
+                db.query(models.Reporte)
+                .order_by(models.Reporte.fecha_generacion.desc())
+                .first()
+            )
+            contexto_str = "TODOS los videos y recorridos procesados del municipio"
+
+            query_centroide = text("""
+                SELECT ST_Y(ST_Centroid(ST_Collect(geom))) as lat,
+                       ST_X(ST_Centroid(ST_Collect(geom))) as lng
+                FROM deteccion WHERE estado_auditoria != 'falso_positivo'
+            """)
+            centroide = db.execute(query_centroide).fetchone()
+        else:
+            # MODO ESPECÍFICO: Solo un video
+            video = db.query(models.Video).filter(models.Video.id == video_id).first()
+            if not video:
+                raise HTTPException(status_code=404, detail="Video no encontrado")
+            if video.estado != "procesado":
+                raise HTTPException(
+                    status_code=400, detail="El video aún no fue procesado."
+                )
+
+            detecciones = (
+                db.query(models.Deteccion)
+                .filter(
+                    models.Deteccion.video_id == video_id,
+                    models.Deteccion.estado_auditoria != "falso_positivo",
+                )
+                .all()
+            )
+            reporte = (
+                db.query(models.Reporte)
+                .join(models.ReporteVideo)
+                .filter(models.ReporteVideo.video_id == video_id)
+                .order_by(models.Reporte.fecha_generacion.desc())
+                .first()
+            )
+            contexto_str = f"el video #{video_id}"
+
+            query_centroide = text("""
+                SELECT ST_Y(ST_Centroid(ST_Collect(geom))) as lat,
+                       ST_X(ST_Centroid(ST_Collect(geom))) as lng
+                FROM deteccion WHERE video_id = :v_id AND estado_auditoria != 'falso_positivo'
+            """)
+            centroide = db.execute(query_centroide, {"v_id": video_id}).fetchone()
+
+        # --- CÁLCULO DE MÉTRICAS ---
         cantidad = len(detecciones)
-        confianza_promedio = sum(d.confianza for d in detecciones) / cantidad if cantidad > 0 else 0
 
-        # Obtener Reporte (si existe)
-        reporte = (
-            db.query(models.Reporte)
-            .join(models.ReporteVideo)
-            .filter(models.ReporteVideo.video_id == video_id)
-            .order_by(models.Reporte.fecha_generacion.desc())
-            .first()
+        # Le inyectamos un resumen del reporte para que la IA tenga contexto de las calles
+        reporte_texto = (
+            reporte.contenido[:1500]
+            if reporte and reporte.contenido
+            else "No hay reportes previos."
         )
-        reporte_texto = reporte.contenido if reporte and reporte.contenido else "No hay reporte previo generado para este video."
 
-        # Obtener Coordenadas para la herramienta
-        query_centroide = text("""
-            SELECT ST_Y(ST_Centroid(ST_Collect(geom))) as lat, 
-                   ST_X(ST_Centroid(ST_Collect(geom))) as lng
-            FROM deteccion WHERE video_id = :v_id
-        """)
-        centroide = db.execute(query_centroide, {"v_id": video_id}).fetchone()
-        
-        lat = float(centroide[0]) if centroide and centroide[0] else 0.0
-        lng = float(centroide[1]) if centroide and centroide[1] else 0.0
+        # Coordenadas seguras (si no hay baches, apuntamos al centro de Moreno)
+        lat = float(centroide[0]) if centroide and centroide[0] else -34.64
+        lng = float(centroide[1]) if centroide and centroide[1] else -58.79
 
-        # Tool
         herramientas = [
             {
                 "type": "function",
@@ -163,110 +291,138 @@ async def preguntar_a_video(
                         "type": "object",
                         "properties": {
                             "lat": {"type": "number", "description": "Latitud"},
-                            "lng": {"type": "number", "description": "Longitud"}
+                            "lng": {"type": "number", "description": "Longitud"},
                         },
-                        "required": ["lat", "lng"]
-                    }
-                }
+                        "required": ["lat", "lng"],
+                    },
+                },
             }
         ]
 
-        # Prompt
+        # --- PROMPT MAESTRO ---
         mensajes = [
             {
-                "role": "system", 
+                "role": "system",
                 "content": (
-                    f"Sos un sistema de IA especializado ÚNICAMENTE en la inspección vial del video {video_id}.\n"
-                    f"- Baches detectados: {cantidad}\n"
-                    f"- Confianza promedio: {confianza_promedio:.2%}\n"
-                    f"- Coordenadas: Lat: {lat}, Lng: {lng}\n\n"
-                    "REGLA DE ORO: Si el usuario pregunta algo que NO sea sobre baches, calles o el video (ej. Python, clima, recetas), NO USES HERRAMIENTAS. Respondé: 'Lo siento, estoy diseñado exclusivamente para asistir en la inspección de baches'.\n\n"
-                    "INSTRUCCIONES:\n"
-                    "1. SOLO baches e infraestructura vial.\n"
-                    "2. HERRAMIENTA DE MAPA: Usala SOLO si preguntan por calles o lugares cercanos a las coordenadas dadas.\n"
-                    "3. OBJETIVIDAD: Basate en el reporte o el mapa. No inventes.\n\n"
-                    "EJEMPLOS DE COMPORTAMIENTO:\n"
-                    "User: ¿Qué versión de Python usás?\n"
-                    "IA: Lo siento, estoy diseñado exclusivamente para asistir en la inspección de baches y no puedo responder sobre otros temas.\n"
-                    "User: ¿Dónde están los baches?\n"
-                    "IA: [Usa la herramienta consultar_mapa_osm]"
-                )
+                    f"Sos el asistente virtual de infraestructura vial de la Municipalidad de Moreno.\n\n"
+                    f"--- DATOS REALES DE {contexto_str.upper()} ---\n"
+                    f"Cantidad total de baches detectados: {cantidad}\n"
+                    f"Coordenadas GPS centrales: Lat {lat}, Lng {lng}\n"
+                    f"Resumen técnico de la zona: {reporte_texto}\n"
+                    f"-----------------------------------------\n\n"
+                    "REGLAS DE COMPORTAMIENTO (CUMPLIR ESTRICTAMENTE):\n"
+                    "1. SI EL USUARIO SALUDA: Responde UNICAMENTE '¡Hola! Soy tu asistente vial de Moreno. ¿Qué necesitás saber sobre nuestras inspecciones?'.\n"
+                    "2. PREGUNTAS GENERALES: Si te preguntan cuántos baches hay, respondé con la cantidad total mencionada en los datos.\n"
+                    "3. USO DE HERRAMIENTA: Usa 'consultar_mapa_osm' SOLO si te preguntan qué lugares o calles hay cerca.\n"
+                    "4. PROHIBIDO INVENTAR: Basate exclusivamente en los datos reales y el resumen técnico provisto."
+                ),
             },
-            {"role": "user", "content": request.pregunta}
+            {"role": "user", "content": request.pregunta},
         ]
 
-        # El Agente decide si usa la herramienta o responde directo segun convenga
-        async with httpx.AsyncClient() as client:
-            respuesta_fase1 = await client.post(
-                f"{settings.OLLAMA_URL}/api/chat",
-                json={"model": "llama3.2:3b", "messages": mensajes, "tools": herramientas, "stream": False},
-                timeout=60.0
+        # --- LLAMADO A OLLAMA ---
+        respuesta_fase1 = await ollama_client.chat.completions.create(
+            model="llama3.2:3b",
+            messages=mensajes,
+            tools=herramientas,
+            stream=False,
+            temperature=0.1,
+        )
+
+        mensaje_ia = respuesta_fase1.choices[0].message
+
+        if getattr(mensaje_ia, "tool_calls", None):
+            logger.info("El Agente decidió usar el mapa de OpenStreetMap.")
+
+            tool_call = mensaje_ia.tool_calls[0]
+            argumentos_crudos = tool_call.function.arguments
+
+            try:
+                argumentos = json.loads(argumentos_crudos) if argumentos_crudos else {}
+            except Exception:
+                argumentos = {}
+
+            arg_lat, arg_lng = lat, lng
+            try:
+                if "lat" in argumentos and isinstance(
+                    argumentos["lat"], (int, float, str)
+                ):
+                    arg_lat = float(argumentos["lat"])
+                if "lng" in argumentos and isinstance(
+                    argumentos["lng"], (int, float, str)
+                ):
+                    arg_lng = float(argumentos["lng"])
+            except (ValueError, TypeError):
+                pass
+
+            datos_osm = await obtener_contexto_geografico(
+                arg_lat, arg_lng, radio_pois=400
             )
-            respuesta_fase1.raise_for_status()
-            mensaje_ia = respuesta_fase1.json().get("message", {})
 
-            # Ejecución de la herramienta
-            if "tool_calls" in mensaje_ia and mensaje_ia["tool_calls"]:
-                logger.info("El Agente decidió usar el mapa de OpenStreetMap en vivo.")
-                
-                argumentos_crudos = mensaje_ia["tool_calls"][0]["function"].get("arguments", {})
-                
-                if isinstance(argumentos_crudos, str):
-                    try:
-                        argumentos = json.loads(argumentos_crudos)
-                    except json.JSONDecodeError:
-                        logger.warning("La IA mando un JSON inválido. Rescatando...")
-                        argumentos = {}
-                else:
-                    argumentos = argumentos_crudos
-                
-                if not isinstance(argumentos, dict):
-                    argumentos = {}
+            mensajes.append(
+                {
+                    "role": "assistant",
+                    "content": mensaje_ia.content or "",
+                    "tool_calls": [
+                        {
+                            "id": tool_call.id,
+                            "type": "function",
+                            "function": {
+                                "name": tool_call.function.name,
+                                "arguments": tool_call.function.arguments,
+                            },
+                        }
+                    ],
+                }
+            )
 
-                # Conversión a floats x q si no no funciona bien
-                arg_lat = lat
-                arg_lng = lng
-                try:
-                    if "lat" in argumentos and argumentos["lat"] not in [None, ""]:
-                        arg_lat = float(argumentos["lat"])
-                    if "lng" in argumentos and argumentos["lng"] not in [None, ""]:
-                        arg_lng = float(argumentos["lng"])
-                except (ValueError, TypeError):
-                    logger.warning("La IA Usó las reales de la BD.")
-                # -----------------------------------------------------
-                
-                # Llamada real a geo_service
-                datos_osm = await obtener_contexto_geografico(arg_lat, arg_lng, radio_pois=400)
-                logger.info(f"Datos obtenidos de OSM: {datos_osm}")
-                
-                mensajes.append(mensaje_ia)
-                mensajes.append({
+            mensajes.append(
+                {
                     "role": "tool",
-                    "content": json.dumps(datos_osm)
-                })
+                    "tool_call_id": tool_call.id,
+                    "name": tool_call.function.name,
+                    "content": json.dumps(datos_osm),
+                }
+            )
 
-                respuesta_fase2 = await client.post(
-                    f"{settings.OLLAMA_URL}/api/chat",
-                    json={"model": "llama3.2:3b", "messages": mensajes, "stream": False},
-                    timeout=60.0
-                )
-                respuesta_fase2.raise_for_status()
-                texto_final = respuesta_fase2.json().get("message", {}).get("content", "Error al procesar.")
-            
-            else:
-                logger.info("El Agente respondió directamente usando el reporte/contexto.")
-                texto_final = mensaje_ia.get("content", "Sin respuesta.")
+            respuesta_fase2 = await ollama_client.chat.completions.create(
+                model="llama3.2:3b", messages=mensajes, stream=False, temperature=0.1
+            )
+            texto_final = (
+                respuesta_fase2.choices[0].message.content or "Error al procesar."
+            )
 
+        else:
+            logger.info("El Agente respondió directamente usando el reporte/contexto.")
+            texto_final = mensaje_ia.content or "Sin respuesta."
 
         return {
             "video_id": video_id,
             "pregunta": request.pregunta,
-            "respuesta": texto_final
+            "respuesta": texto_final,
         }
 
     except Exception as e:
         logger.error("=== ERROR EN EL AGENTE ===")
         logger.error(str(e))
         logger.error(traceback.format_exc())
-        logger.error("==========================")
-        raise HTTPException(status_code=500, detail="Error en la Inteligencia Artificial.")
+        raise HTTPException(
+            status_code=500, detail="Error en la Inteligencia Artificial."
+        )
+
+
+@router.delete("/api/v1/sistema/reset", tags=["Mantenimiento"])
+def resetear_base_de_datos(db: Session = Depends(get_db)):
+    try:
+        db.execute(
+            text(
+                "TRUNCATE TABLE video, deteccion, reporte, reporte_video, telemetria RESTART IDENTITY CASCADE;"
+            )
+        )
+        db.commit()
+        return {
+            "mensaje": "¡Sistema reseteado! Los mapas están en blanco y el próximo video será el ID: 1."
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))

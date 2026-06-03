@@ -1,10 +1,13 @@
+import asyncio
+import json
 import logging
 
-import httpx
 import models
 from configs.config import settings
 from database import get_db
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
+from openai import AsyncOpenAI
 from pydantic import BaseModel
 from services.geo_service import obtener_contexto_geografico, obtener_nombre_calle
 from sqlalchemy import text
@@ -12,6 +15,11 @@ from sqlalchemy.orm import Session
 
 router = APIRouter()
 logger = logging.getLogger("api.reporte")
+
+# --- CLIENTE DEL PROFESOR ---
+ollama_client = AsyncOpenAI(
+    base_url=f"{settings.OLLAMA_URL}/v1", api_key=settings.OLLAMA_TOKEN
+)
 
 
 class GenerarReporteRequest(BaseModel):
@@ -35,225 +43,219 @@ async def generar_reporte(
         videos = query_videos.all()
 
         if not videos:
-            detalle = "No se encontraron videos procesados"
-            if request.video_ids:
-                detalle += f" para los IDs: {request.video_ids}"
-            raise HTTPException(status_code=404, detail=detalle)
+            raise HTTPException(
+                status_code=404, detail="No se encontraron videos procesados"
+            )
 
         ids_v = [v.id for v in videos]
         logger.info(f"--- INICIO GENERACIÓN REPORTE (Videos: {ids_v}) ---")
 
-        # --- 1. RANGO DE CALLES POR VIDEO ---
-        resumen_recorridos = []
-        for v in videos:
-            puntos = db.execute(
-                text("""
-                SELECT ST_Y(geom) as lat, ST_X(geom) as lng
-                FROM deteccion WHERE video_id = :v_id
-                ORDER BY fecha_deteccion ASC
-            """),
-                {"v_id": v.id},
-            ).fetchall()
+        async def generador_ollama():
+            yield " "
 
-            if puntos:
-                inicio = await obtener_nombre_calle(puntos[0].lat, puntos[0].lng)
-                fin = await obtener_nombre_calle(puntos[-1].lat, puntos[-1].lng)
-                if inicio == fin:
-                    resumen_recorridos.append(
-                        f"- Recorrido {v.id}: Principalmente en {inicio}"
-                    )
-                else:
-                    resumen_recorridos.append(
-                        f"- Recorrido {v.id}: Desde {inicio} hasta {fin}"
-                    )
-
-        recorridos_str = "\n".join(resumen_recorridos)
-        logger.info(f"Cobertura geográfica determinada:\n{recorridos_str}")
-
-        # --- 2. HALLAZGOS AGRUPADOS (CLUSTERS) ---
-        query_global = text("""
-            WITH clusters AS (
-                SELECT tipo_dano, confianza, geom,
-                       ST_ClusterDBSCAN(geom, 0.00005, 1)
-                       OVER(PARTITION BY tipo_dano) as cluster_id
-                FROM deteccion WHERE video_id IN :ids
-            )
-            SELECT
-                tipo_dano,
-                MAX(confianza) as conf_max,
-                ST_Y(ST_Centroid(ST_Collect(geom))) as lat,
-                ST_X(ST_Centroid(ST_Collect(geom))) as lng
-            FROM clusters
-            GROUP BY tipo_dano, cluster_id
-        """)
-
-        baches_agrupados = db.execute(query_global, {"ids": tuple(ids_v)}).fetchall()
-        logger.info(
-            f"Total baches/puntos agrupados (clusters) encontrados: {len(baches_agrupados)}"
-        )
-
-        # --- 3. ENRIQUECIMIENTO Y AGRUPACIÓN POR CALLE ---
-        agrupacion_calles = {}
-        for b in baches_agrupados:
-            contexto = await obtener_contexto_geografico(b.lat, b.lng)
-            calle = contexto["calle"]
-            if calle not in agrupacion_calles:
-                agrupacion_calles[calle] = {
-                    "hallazgos": [],
-                    "pois": set(),
-                    "tipo": contexto["tipo_calle"],
-                    "prioridad_score": 0,
-                    "segmentos_tierra": [],
-                }
-
-            if b.tipo_dano == "CALLE_TIERRA":
-                entrecalles = contexto.get("calles_cruzadas", [])
-                if entrecalles not in agrupacion_calles[calle]["segmentos_tierra"]:
-                    agrupacion_calles[calle]["segmentos_tierra"].append(entrecalles)
-            else:
-                agrupacion_calles[calle]["hallazgos"].append(b.tipo_dano)
-
-            for p in contexto["pois_cercanos"]:
-                agrupacion_calles[calle]["pois"].add(p)
-
-        # Cálculo de Prioridad Técnica
-        detalles_contexto_vial = []
-        for calle, info in agrupacion_calles.items():
-            score = len(info["hallazgos"]) * 2
-            if info["segmentos_tierra"]:
-                score += 3
-            if any(
-                p in str(info["pois"])
-                for p in ["Escuela", "Hospital", "Centro de Salud"]
-            ):
-                score += 5
-            if "Avenida" in info["tipo"] or "Ruta" in info["tipo"]:
-                score *= 1.5
-
-            info["prioridad_score"] = score
-
-            hallazgos_list = []
-            tipos_danos = set(info["hallazgos"])
-            if tipos_danos:
-                danos_str = ", ".join(
-                    [f"{info['hallazgos'].count(t)} {t}" for t in tipos_danos]
-                )
-                hallazgos_list.append(f"Daños en asfalto: {danos_str}")
-
-            for segment in info["segmentos_tierra"]:
-                entre_str = " entre " + " y ".join(segment) if segment else ""
-                hallazgos_list.append(f"Calzada de tierra detectada{entre_str}")
-
-            conteo_str = " | ".join(hallazgos_list)
-            pois_str = (
-                f" (Proximidad: {', '.join(info['pois'])})" if info["pois"] else ""
-            )
-
-            detalle_linea = f"- {calle} ({info['tipo']}): {conteo_str}{pois_str}. [Score Prioridad: {score:.1f}]"
-            detalles_contexto_vial.append(detalle_linea)
-            logger.info(f"Data estructurada para {calle}: {detalle_linea}")
-
-        contexto_hallazgos_str = "\n".join(detalles_contexto_vial)
-
-        # --- 4. GENERACIÓN DEL REPORTE CON IA ---
-        prompt = f"""
-        Sos un inspector vial experto del municipio de Moreno.
-        Tu tarea es redactar un informe ejecutivo formal y técnico.
-
-        OBJETIVO: Evaluar críticamente qué calles deben ser intervenidas, justificando cada acción basándote en el impacto social y estratégico (POIs y jerarquía vial).
-
-        REGLAS DE RAZONAMIENTO OBLIGATORIAS:
-        1. JUSTIFICACIÓN POR POI: Si recomendás una obra urgente, debés mencionar el Punto de Interés (Escuela, Hospital, Parada) que justifica esa urgencia.
-           Ejemplo: "Se requiere bacheo urgente en Calle X debido a su proximidad con el Hospital Y".
-        2. JERARQUÍA VIAL: Las Avenidas y Rutas tienen prioridad natural por volumen de tránsito. Si una calle es residencial pero tiene muchos baches, terminala de priorizar según si conecta con una vía principal.
-        3. PAVIMENTACIÓN ESTRATÉGICA: Para las calles de tierra, justificá la obra como una mejora en la conectividad del barrio o acceso a servicios.
-        4. USO DEL SCORE (INTERNO): Usá el score para ordenar las calles de mayor a menor importancia, pero NUNCA escribas el número.
-
-        REGLA DE ORO DE FORMATO:
-        - PROHIBIDO mencionar "Score", "Puntaje" o números decimales.
-        - PROHIBIDO decir "X calle tierra". Usá "tramo de calzada natural/tierra".
-        - Sé profesional, directo y usá un lenguaje técnico (ej. "nudo vial", "arteria principal", "seguridad vial").
-
-        DATOS DE LA INSPECCIÓN:
-        - Cobertura de los recorridos:
-        {recorridos_str}
-
-        - Detalle técnico por ubicación (Hallazgos, POIs y prioridad interna):
-        {contexto_hallazgos_str}
-
-        ESTRUCTURA OBLIGATORIA:
-        1. Resumen Ejecutivo (Estado general de la zona recorrida).
-        2. Análisis de Prioridades de Reparación (Justificá bacheo/repavimentación usando Avenidas y POIs).
-        3. Propuesta de Pavimentación e Impacto Social (Justificá obras en calles de tierra según conectividad).
-        4. Conclusión Técnica (Resumen de la urgencia general).
-
-        Empezá directo con el título "INFORME TÉCNICO DE INSPECCIÓN VIAL - MORENO"."""
-
-        logger.info("--- PROMPT ENVIADO A OLLAMA ---")
-        logger.info(prompt)
-
-        # Generamos el reporte ANTES de abrir/usar la transacción de DB de forma intensiva
-        # o simplemente nos aseguramos de que el timeout sea lo suficientemente largo.
-        async with httpx.AsyncClient() as client:
             try:
-                response = await client.post(
-                    f"{settings.OLLAMA_URL}/api/generate",
-                    json={
-                        "model": "llama3.2:3b",
-                        "prompt": prompt,
-                        "stream": False,
-                        "options": {
-                            "temperature": 0.1,
-                            "num_predict": 1500,
-                            "top_p": 0.9,
-                        },
-                    },
-                    timeout=300.0,  # Aumentado a 5 minutos
+                resumen_recorridos = []
+                for v in videos:
+                    puntos = db.execute(
+                        text("""
+                        SELECT ST_Y(geom) as lat, ST_X(geom) as lng
+                        FROM deteccion WHERE video_id = :v_id AND estado_auditoria != 'falso_positivo'
+                        ORDER BY fecha_deteccion ASC
+                    """),
+                        {"v_id": v.id},
+                    ).fetchall()
+
+                    if puntos:
+                        inicio = await obtener_nombre_calle(
+                            puntos[0].lat, puntos[0].lng
+                        )
+                        fin = await obtener_nombre_calle(puntos[-1].lat, puntos[-1].lng)
+                        if inicio == fin:
+                            resumen_recorridos.append(
+                                f"- Recorrido {v.id}: Principalmente en {inicio}"
+                            )
+                        else:
+                            resumen_recorridos.append(
+                                f"- Recorrido {v.id}: Desde {inicio} hasta {fin}"
+                            )
+
+                recorridos_str = "\n".join(resumen_recorridos)
+
+                query_global = text("""
+                    WITH clusters AS (
+                        SELECT tipo_dano, confianza, geom,
+                               ST_ClusterDBSCAN(geom, 0.00005, 1)
+                               OVER(PARTITION BY tipo_dano) as cluster_id
+                        FROM deteccion WHERE video_id IN :ids AND estado_auditoria != 'falso_positivo'
+                    )
+                    SELECT
+                        tipo_dano,
+                        MAX(confianza) as conf_max,
+                        ST_Y(ST_Centroid(ST_Collect(geom))) as lat,
+                        ST_X(ST_Centroid(ST_Collect(geom))) as lng
+                    FROM clusters
+                    GROUP BY tipo_dano, cluster_id
+                """)
+
+                baches_agrupados = db.execute(
+                    query_global, {"ids": tuple(ids_v)}
+                ).fetchall()
+                agrupacion_calles = {}
+
+                for b in baches_agrupados:
+                    try:
+                        contexto = await asyncio.wait_for(
+                            obtener_contexto_geografico(b.lat, b.lng), timeout=10.0
+                        )
+                    except (asyncio.TimeoutError, Exception):
+                        contexto = {
+                            "calle": f"Zona GPS {b.lat:.4f}, {b.lng:.4f}",
+                            "tipo_calle": "Vía desconocida",
+                            "calles_cruzadas": [],
+                            "pois_cercanos": [],
+                        }
+
+                    calle = contexto["calle"]
+                    if calle not in agrupacion_calles:
+                        agrupacion_calles[calle] = {
+                            "hallazgos": [],
+                            "pois": set(),
+                            "tipo": contexto["tipo_calle"],
+                            "prioridad_score": 0,
+                            "segmentos_tierra": [],
+                        }
+
+                    if b.tipo_dano == "CALLE_TIERRA":
+                        entrecalles = contexto.get("calles_cruzadas", [])
+                        if (
+                            entrecalles
+                            not in agrupacion_calles[calle]["segmentos_tierra"]
+                        ):
+                            agrupacion_calles[calle]["segmentos_tierra"].append(
+                                entrecalles
+                            )
+                    else:
+                        agrupacion_calles[calle]["hallazgos"].append(b.tipo_dano)
+
+                    for p in contexto["pois_cercanos"]:
+                        agrupacion_calles[calle]["pois"].add(p)
+
+                detalles_contexto_vial = []
+                for calle, info in agrupacion_calles.items():
+                    score = len(info["hallazgos"]) * 2
+                    if info["segmentos_tierra"]:
+                        score += 3
+                    if any(
+                        p in str(info["pois"])
+                        for p in ["Escuela", "Hospital", "Centro de Salud"]
+                    ):
+                        score += 5
+                    if "Avenida" in info["tipo"] or "Ruta" in info["tipo"]:
+                        score *= 1.5
+
+                    info["prioridad_score"] = score
+                    hallazgos_list = []
+                    tipos_danos = set(info["hallazgos"])
+                    if tipos_danos:
+                        danos_str = ", ".join(
+                            [f"{info['hallazgos'].count(t)} {t}" for t in tipos_danos]
+                        )
+                        hallazgos_list.append(f"Daños en asfalto: {danos_str}")
+
+                    for segment in info["segmentos_tierra"]:
+                        entre_str = " entre " + " y ".join(segment) if segment else ""
+                        hallazgos_list.append(f"Calzada de tierra detectada{entre_str}")
+
+                    conteo_str = " | ".join(hallazgos_list)
+                    pois_str = (
+                        f" (Proximidad: {', '.join(info['pois'])})"
+                        if info["pois"]
+                        else ""
+                    )
+                    detalle_linea = f"- {calle} ({info['tipo']}): {conteo_str}{pois_str}. [Score Prioridad: {score:.1f}]"
+                    detalles_contexto_vial.append(detalle_linea)
+
+                contexto_hallazgos_str = "\n".join(detalles_contexto_vial)
+
+                prompt = f"""
+                Sos un inspector vial experto del municipio de Moreno.
+                Tu tarea es redactar un informe ejecutivo formal y técnico.
+
+                OBJETIVO: Evaluar críticamente qué calles deben ser intervenidas, justificando cada acción basándote en el impacto social y estratégico (POIs y jerarquía vial).
+
+                REGLAS DE RAZONAMIENTO OBLIGATORIAS:
+                1. JUSTIFICACIÓN POR POI: Si recomendás una obra urgente, debés mencionar el Punto de Interés (Escuela, Hospital, Parada) que justifica esa urgencia.
+                   Ejemplo: "Se requiere bacheo urgente en Calle X debido a su proximidad con el Hospital Y".
+                2. JERARQUÍA VIAL: Las Avenidas y Rutas tienen prioridad natural por volumen de tránsito. Si una calle es residencial pero tiene muchos baches, terminala de priorizar según si conecta con una vía principal.
+                3. PAVIMENTACIÓN ESTRATÉGICA: Para las calles de tierra, justificá la obra como una mejora en la conectividad del barrio o acceso a servicios.
+                4. USO DEL SCORE (INTERNO): Usá el score para ordenar las calles de mayor a menor importancia, pero NUNCA escribas el número.
+
+                REGLA DE ORO DE FORMATO:
+                - PROHIBIDO mencionar "Score", "Puntaje" o números decimales.
+                - PROHIBIDO decir "X calle tierra". Usá "tramo de calzada natural/tierra".
+                - Sé profesional, directo y usá un lenguaje técnico (ej. "nudo vial", "arteria principal", "seguridad vial").
+
+                DATOS DE LA INSPECCIÓN:
+                - Cobertura de los recorridos:
+                {recorridos_str}
+
+                - Detalle técnico por ubicación (Hallazgos, POIs y prioridad interna):
+                {contexto_hallazgos_str}
+
+                ESTRUCTURA OBLIGATORIA:
+                1. Resumen Ejecutivo (Estado general de la zona recorrida).
+                2. Análisis de Prioridades de Reparación (Justificá bacheo/repavimentación usando Avenidas y POIs).
+                3. Propuesta de Pavimentación e Impacto Social (Justificá obras en calles de tierra según conectividad).
+                4. Conclusión Técnica (Resumen de la urgencia general).
+
+                Empezá directo con el título "INFORME TÉCNICO DE INSPECCIÓN VIAL - MORENO"."""
+
+                texto_completo = ""
+
+                # Streaming con la SDK asíncrona de OpenAI apuntando al Cloudflare Tunnel
+                stream = await ollama_client.chat.completions.create(
+                    model="llama3.2:3b",
+                    messages=[{"role": "user", "content": prompt}],
+                    stream=True,
+                    temperature=0.1,
                 )
-                response.raise_for_status()
-                contenido_reporte = response.json().get("response")
-            except httpx.ReadTimeout:
-                logger.error(
-                    "Timeout de lectura en Ollama. El modelo está tardando demasiado."
-                )
-                raise HTTPException(
-                    status_code=504,
-                    detail="La IA tardó demasiado en responder. Reintente en unos momentos.",
-                )
 
-        logger.info("--- RESPUESTA RECIBIDA DE OLLAMA ---")
+                async for chunk in stream:
+                    delta = chunk.choices[0].delta.content or ""
+                    if delta:
+                        texto_completo += delta
+                        yield delta
 
-        # Guardado en base de datos (Operación rápida)
-        try:
-            nuevo_reporte = models.Reporte(contenido=contenido_reporte)
-            db.add(nuevo_reporte)
-            db.flush()
+                # GUARDAR EN BD AL FINALIZAR
+                if texto_completo.strip():
+                    nuevo_reporte = models.Reporte(contenido=texto_completo)
+                    db.add(nuevo_reporte)
+                    db.flush()
+                    for v in videos:
+                        relacion = models.ReporteVideo(
+                            video_id=v.id, reporte_id=nuevo_reporte.id
+                        )
+                        db.add(relacion)
+                    db.commit()
 
-            for v in videos:
-                relacion = models.ReporteVideo(
-                    video_id=v.id, reporte_id=nuevo_reporte.id
-                )
-                db.add(relacion)
+            except Exception as e:
+                logger.error(f"Error en stream: {e}")
+                yield f"\n\n[Error interno: {str(e)}]"
 
-            db.commit()
-        except Exception as db_e:
-            db.rollback()
-            logger.error(f"Error al guardar el reporte en la base de datos: {db_e}")
-            raise HTTPException(
-                status_code=500, detail="Error al persistir el reporte."
-            )
-
-        return {
-            "mensaje": "Reporte enriquecido generado correctamente.",
-            "reporte_id": nuevo_reporte.id,
-            "contenido": contenido_reporte,
+        headers_stream = {
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
         }
+        return StreamingResponse(
+            generador_ollama(), media_type="text/plain", headers=headers_stream
+        )
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error general en generar_reporte: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Error inesperado: {str(e)}")
+        logger.error(f"Error general: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/api/v1/reporte/{video_id}", tags=["Inteligencia Artificial"])
@@ -272,13 +274,8 @@ def obtener_reporte(video_id: int, db: Session = Depends(get_db)):
             .order_by(models.Reporte.fecha_generacion.desc())
             .first()
         )
-
     if not reporte:
-        raise HTTPException(
-            status_code=404,
-            detail=f"No se encontró ningún reporte para el video ID {video_id}.",
-        )
-
+        raise HTTPException(status_code=404, detail=f"No se encontró ningún reporte.")
     return {
         "reporte_id": reporte.id,
         "contenido": reporte.contenido,

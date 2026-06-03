@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker-preprocesamiento
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: worker-pre
+  template:
+    metadata:
+      labels:
+        app: worker-pre
+    spec:
+      containers:
+        - name: worker-pre
+          image: us-central1-docker.pkg.dev/pics-moreno-cloud/pics-repo/worker-base:v1
+          command: ["python", "worker_preprocesamiento.py"]
+          env:
+            - name: REDIS_HOST
+              value: "redis-queue"
+          envFrom:
+            - secretRef:
+                name: pics-secrets
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker-inferencia
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: worker-inf
+  template:
+    metadata:
+      labels:
+        app: worker-inf
+    spec:
+      containers:
+        - name: worker-inf
+          image: us-central1-docker.pkg.dev/pics-moreno-cloud/pics-repo/worker-base:v1
+          command: ["python", "worker.py"]
+          env:
+            - name: REDIS_HOST
+              value: "redis-queue"
+          envFrom:
+            - secretRef:
+                name: pics-secrets
