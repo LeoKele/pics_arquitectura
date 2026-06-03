@@ -83,14 +83,15 @@ async def generar_reporte(
 
                 query_global = text("""
                     WITH clusters AS (
-                        SELECT tipo_dano, confianza, geom,
-                               ST_ClusterDBSCAN(geom, 0.00005, 1)
+                        SELECT tipo_dano, geom,
+                               -- MAGIA ACÁ: Cambiamos 0.00005 a 0.0015 
+                               ST_ClusterDBSCAN(geom, 0.0015, 1)
                                OVER(PARTITION BY tipo_dano) as cluster_id
                         FROM deteccion WHERE video_id IN :ids AND estado_auditoria != 'falso_positivo'
                     )
                     SELECT
                         tipo_dano,
-                        MAX(confianza) as conf_max,
+                        COUNT(*) as cantidad_baches, 
                         ST_Y(ST_Centroid(ST_Collect(geom))) as lat,
                         ST_X(ST_Centroid(ST_Collect(geom))) as lng
                     FROM clusters
@@ -140,7 +141,7 @@ async def generar_reporte(
                                 entrecalles
                             )
                     else:
-                        agrupacion_calles[calle]["hallazgos"].append(b.tipo_dano)
+                        agrupacion_calles[calle]["hallazgos"].extend([b.tipo_dano] * b.cantidad_baches)
 
                     for p in contexto["pois_cercanos"]:
                         agrupacion_calles[calle]["pois"].add(p)
