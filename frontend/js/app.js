@@ -186,7 +186,6 @@ async function abrirModalReporte(metodoAccion) {
       body.innerHTML = `<div style="text-align:center; padding: 40px;"><div style="color:var(--color-primario); font-size: 2rem; margin-bottom: 16px;"><i class="fa-solid fa-circle-notch fa-spin"></i></div><div style="color:#aaa; font-size: 1.1rem;">Buscando el reporte guardado...</div></div>`;
   }
 
-
   try {
     let urlReporte = ''; let opcionesFetch = {};
     if (metodoAccion === 'POST') {
@@ -194,6 +193,7 @@ async function abrirModalReporte(metodoAccion) {
         opcionesFetch = { 
             method: 'POST', 
             headers: { 'Content-Type': 'application/json' }, 
+            // FIX DEFINITIVO: Ahora manda la lista correctamente
             body: JSON.stringify({ video_ids: [videoSeleccionadoActualmente] }) 
         };
 
