@@ -108,7 +108,7 @@ async def generar_reporte(
                         await asyncio.sleep(1.2)
                         
                         contexto = await asyncio.wait_for(
-                            obtener_contexto_geografico(b.lat, b.lng), timeout=10.0
+                            obtener_contexto_geografico(b.lat, b.lng), timeout=30.0
                         )
                     except (asyncio.TimeoutError, Exception) as e:
                         # Ahora si falla, lo vemos en la consola

@@ -17,7 +17,8 @@ async def obtener_nombre_calle(lat: float, lng: float):
 
     headers = {"User-Agent": "PICS-UNLu-Research-Project/1.0 (contacto@unlu.edu.ar)"}
 
-    async with httpx.AsyncClient(timeout=10.0, headers=headers) as client:
+    # 1. FIX: Aumentamos el timeout a 30.0 segundos
+    async with httpx.AsyncClient(timeout=30.0, headers=headers) as client:
         # Intento 1: Photon (Super amigable con Google Cloud IPs)
         try:
             res = await client.get(
@@ -58,8 +59,8 @@ async def obtener_contexto_geografico(lat: float, lng: float, radio_pois: int = 
     # Obtenemos la calle principal
     calle_base = await obtener_nombre_calle(lat, lng)
 
-    # Buscamos Puntos de Interés
-    query = f"""[out:json][timeout:10];
+    # 2. FIX: Aumentamos el timeout interno de Overpass a 30 segundos
+    query = f"""[out:json][timeout:30];
     (
       nwr(around:{radio_pois}, {lat}, {lng})["amenity"~"hospital|school|fire_station|police|clinic|pharmacy"];
     );
@@ -68,7 +69,8 @@ async def obtener_contexto_geografico(lat: float, lng: float, radio_pois: int = 
     headers = {"User-Agent": "PICS-UNLu-Research-Project/1.0 (contacto@unlu.edu.ar)"}
     pois_encontrados = []
 
-    async with httpx.AsyncClient(timeout=10.0, headers=headers) as client:
+    # 3. FIX: Aumentamos el timeout del cliente HTTP a 30.0 segundos
+    async with httpx.AsyncClient(timeout=30.0, headers=headers) as client:
         try:
             # Intento: Kumi Systems (Es un servidor alternativo que suele permitir IPs de Cloud)
             res = await client.post(
