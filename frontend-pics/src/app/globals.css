@@ -1,0 +1,23 @@
+@import "tailwindcss";
+
+.custom-scrollbar::-webkit-scrollbar { width: 6px; }
+.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: #333; border-radius: 10px; }
+.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #555; }
+.dark-map-tiles {
+  filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%);
+}
+.leaflet-popup-content-wrapper,
+.leaflet-popup-tip {
+  background-color: #121212 !important;
+  color: #e0e0e0 !important;
+  border: 1px solid #00aaff !important;
+  box-shadow: 0 4px 20px rgba(0, 170, 255, 0.2) !important;
+}
+
+.leaflet-popup-close-button {
+  color: #888 !important;
+}
+.leaflet-popup-close-button:hover {
+  color: #ff3d3d !important;
+}
