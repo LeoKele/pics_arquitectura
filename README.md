@@ -14,6 +14,8 @@ El proyecto utiliza Docker Compose para orquestar los siguientes servicios:
 - **Almacenamiento de Objetos (MinIO)**: Guarda archivos crudos (`.mp4`, `.json`) y las capturas de las detecciones.
 - **Modelo Ollama**: Ejecuta el modelo de lenguaje "llama3.2:3b" localmente para generar informes ejecutivos.
 - **Observabilidad (Loki + Promtail + Grafana)**: Centralización de logs y monitoreo en tiempo real.
+- **Frontend Dashboard (Next.js / React)**: Panel visual interactivo para visualizar el mapa de detecciones, auditar daños, chatear con la IA de reportes y gestionar el sistema.
+- **PozoCam App (Next.js / React)**: Aplicación móvil para el dispositivo de registro (captura de video y telemetría GPS).
 
 ## Estructura del Repositorio
 
@@ -30,6 +32,8 @@ El código se organiza de la siguiente manera:
     - `anonimizador.py`: Módulo que gestiona la difuminación de rostros y patentes.
     - `best.pt`: Pesos del modelo YOLO entrenado para detección de daños.
     - `yolov8s-face-lindevs.pt` y `license-plate-finetune-v1s.pt`: Pesos de los modelos de censura
+- **frontend-pics/**: Aplicación Dashboard en Next.js (React) y TailwindCSS para visualización de mapas y auditoría de baches.
+- **front-pozocam-react/**: Aplicación móvil en Next.js (React) para captura de video y sincronización GPS del vehículo.
 - **observabilidad/**: Archivos de configuración para el stack de monitoreo (Promtail).
 - **docker-compose.yml**: Definición de toda la infraestructura como código.
 
@@ -54,11 +58,22 @@ detect-secrets scan > .secrets.baseline
 pre-commit install
 ```
 
-### 4. Levantar la infraestructura
-Ejecutá el siguiente comando para construir las imágenes y levantar los contenedores:
+### 4. Levantar la infraestructura (Docker Compose)
+Ejecutá el siguiente comando para construir las imágenes y levantar todos los contenedores de forma automatizada:
 ```bash
 docker-compose up --build -d
 ```
+Este comando levantará la base de datos, el almacenamiento MinIO, Redis, la API FastAPI, los workers de preprocesamiento e inferencia, la observabilidad (Loki, Promtail, Grafana), Ollama y el Frontend Dashboard.
+
+*   **API (FastAPI)**: Accesible en `http://localhost:8000/docs`.
+*   **Frontend Dashboard (Next.js)**: Accesible en `http://localhost:8080`.
+*   **Grafana**: Accesible en `http://localhost:3000`.
+*   **MinIO Console**: Accesible en `http://localhost:9001`.
+
+> [!NOTE]
+> **Conexión a la API (Local vs Nube):**
+> * **Local (Desarrollo/Demo):** No requiere ninguna configuración. El frontend en Docker y la app de PozoCam se conectan automáticamente a la API local en `http://localhost:8000`.
+> * **Nube (Nuestro Despliegue de Referencia):** Para nuestro entorno en Google Cloud, la IP pública del backend de producción (`http://34.63.158.31:8000`) se inyecta al compilar la imagen usando `--build-arg NEXT_PUBLIC_API_URL=...`. Esto lo realiza de forma automática nuestro workflow de **GitHub Actions** en cada push a `main`.
 
 ### 5. Descargar el modelo de IA (Ollama)
 La primera vez que levantes el proyecto, debés descargar el modelo (aprox. 2GB):
@@ -66,6 +81,15 @@ La primera vez que levantes el proyecto, debés descargar el modelo (aprox. 2GB)
 docker exec -it pics_proyecto-ollama-1 ollama run llama3.2:3b
 ```
 > **Nota**: Si el nombre del contenedor varía, verificalo con `docker ps`.
+
+### 6. Levantar la App móvil de PozoCam (Local)
+La aplicación PozoCam (utilizada para grabar videos y sincronizar telemetría) no forma parte del orquestador local de docker-compose ya que está pensada para ejecutarse en el dispositivo móvil de captura. Para levantarla localmente para desarrollo:
+```bash
+cd front-pozocam-react
+npm install
+npm run dev
+```
+La aplicación estará disponible en `http://localhost:3000` (o `3001` si el puerto 3000 está ocupado por Grafana). Podés ingresar a la pestaña de configuración dentro de la app para ajustar la URL de la API a la que envía los datos (por defecto apuntará a la API local en `http://localhost:8000`).
 
 ---
 
@@ -148,6 +172,9 @@ El sistema utiliza **llama3.2:3b** ejecutándose localmente. Esto garantiza la p
 
 ## Despliegue en la Nube (Google Cloud Platform - GCP)
 
+> Los comandos y configuraciones de esta sección contienen identificadores de proyecto (`pics-moreno-cloud`), cuentas de servicio (`788873585485-compute@developer.gserviceaccount.com`) y direcciones IP específicas de **nuestro despliegue de referencia**.
+> Si deseas desplegar tu propia instancia de la arquitectura, deberás reemplazar estos valores por los correspondientes a tu proyecto y recursos de Google Cloud.
+
 Esta sección detalla los pasos para realizar el despliegue del sistema en **Google Cloud Platform (GCP)** utilizando **Google Kubernetes Engine (GKE)** para la orquestación y **Cloud SQL** para la base de datos PostgreSQL.
 
 ### 1. Configuración de la Infraestructura en GCP
@@ -207,7 +234,8 @@ docker build -t us-central1-docker.pkg.dev/pics-moreno-cloud/pics-repo/worker-ba
 docker push us-central1-docker.pkg.dev/pics-moreno-cloud/pics-repo/worker-base:v1
 
 # 3. Frontend (React / Next.js)
-docker build -t us-central1-docker.pkg.dev/pics-moreno-cloud/pics-repo/frontend:v1 -f ./frontend-pics/Dockerfile ./frontend-pics
+# NOTA: Si compilás de forma manual (sin usar el CI/CD de GitHub Actions), debés pasar la IP de GCP con --build-arg
+docker build -t us-central1-docker.pkg.dev/pics-moreno-cloud/pics-repo/frontend:v1 --build-arg NEXT_PUBLIC_API_URL=http://34.63.158.31:8000 -f ./frontend-pics/Dockerfile ./frontend-pics
 docker push us-central1-docker.pkg.dev/pics-moreno-cloud/pics-repo/frontend:v1
 ```
 
@@ -221,7 +249,6 @@ Ejecuta el siguiente comando para descargar las credenciales de conexión del cl
 ```bash
 gcloud container clusters get-credentials pics-cluster --zone us-central1-a --project pics-moreno-cloud
 ```
-> [!NOTE]
 > Si no tienes la herramienta `kubectl` instalada localmente, puedes agregarla con: `gcloud components install kubectl`.
 
 #### B. Permisos de Descarga de Imágenes (Service Account)

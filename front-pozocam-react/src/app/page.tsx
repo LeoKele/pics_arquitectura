@@ -21,7 +21,7 @@ export default function PozoCam() {
     deviceId: null,
     resolution: '1920x1080',
     bitrate: 7500000,
-    apiUrl: 'http://34.63.158.31:8000', // Servidor de producción por defecto
+    apiUrl: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000', // Servidor de desarrollo/producción
   });
   const [mounted, setMounted] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -105,7 +105,7 @@ export default function PozoCam() {
     const savedDeviceId = localStorage.getItem('pozocam_deviceId');
     const savedRes = localStorage.getItem('pozocam_res') || '1920x1080';
     const savedBitrate = parseInt(localStorage.getItem('pozocam_bitrate') || '7500000');
-    const savedApi = localStorage.getItem('pozocam_apiUrl') || 'http://34.63.158.31:8000';
+    const savedApi = localStorage.getItem('pozocam_apiUrl') || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
     const loadedSettings: AppSettings = {
       deviceId: savedDeviceId,

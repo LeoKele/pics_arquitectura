@@ -5,7 +5,7 @@ import { marked } from "marked";
 export default function ModalReporte({ isOpen, onClose, videoSeleccionado, metodo }) {
   const [contenido, setContenido] = useState("");
   const [estado, setEstado] = useState("idle");
-  const API_URL = "http://34.63.158.31:8000";
+  const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
   const abortControllerRef = useRef(null);
   const scrollRef = useRef(null);
 

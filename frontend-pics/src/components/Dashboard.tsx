@@ -18,7 +18,7 @@ interface DashboardProps {
 }
 
 export default function Dashboard({ rol, onLogout }: DashboardProps) {
-  const API_URL = "http://34.63.158.31:8000";
+  const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
   const [stats, setStats] = useState({ baches: 0, videos: 0 });
   const [listaVideos, setListaVideos] = useState<any[]>([]);

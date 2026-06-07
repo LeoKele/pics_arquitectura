@@ -8,7 +8,12 @@ RUN npm ci
 
 # Copiar el resto del código y compilar la aplicación
 COPY . .
+
+# Argumento de compilación para definir la API de producción
+ARG NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 ENV NEXT_TELEMETRY_DISABLED=1
+
 RUN npm run build
 
 # Imagen de producción final

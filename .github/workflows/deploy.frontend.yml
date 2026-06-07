@@ -5,7 +5,7 @@ on:
     branches:
       - main
     paths:
-      - 'frontend/**'
+      - 'frontend-pics/**'
 
 jobs:
   build-and-deploy:
@@ -26,15 +26,15 @@ jobs:
       uses: google-github-actions/get-gke-credentials@v2
       with:
         cluster_name: 'pics-cluster'
-        location: 'us-central1-a'  
+        location: 'us-central1-a'
 
     - name: Build y Push de la imagen
       run: |
-        cd frontend
+        cd frontend-pics
         # Usamos los primeros 7 caracteres del commit como versión automática (ej: v-a1b2c3d)
         IMAGE_TAG="us-central1-docker.pkg.dev/pics-moreno-cloud/pics-repo/frontend:v-${GITHUB_SHA::7}"
-        
-        docker build -t $IMAGE_TAG .
+
+        docker build -t $IMAGE_TAG --build-arg NEXT_PUBLIC_API_URL=http://34.63.158.31:8000 .
         docker push $IMAGE_TAG
 
     - name: Desplegar en Kubernetes

@@ -13,7 +13,7 @@ export default function FotoDeteccion({ falla, videoSeleccionado, onAuditoriaCom
   const [imgDims, setImgDims] = useState({ w: 0, h: 0 });
   const [ubicacion, setUbicacion] = useState<string>("Consultando GPS...");
   const [zoomOrigin, setZoomOrigin] = useState("50% 50%");
-  const API_URL = "http://34.63.158.31:8000";
+  const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
   useEffect(() => {
     setImgDims({ w: 0, h: 0 });

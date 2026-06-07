@@ -142,7 +142,7 @@ export default function SettingsModal({
               type="text"
               value={apiUrl}
               onChange={(e) => setApiUrl(e.target.value)}
-              placeholder="http://34.63.158.31:8000"
+              placeholder="http://localhost:8000"
               className="w-full bg-zinc-900 border border-white/10 hover:border-white/20 text-sm text-zinc-100 rounded-xl px-3.5 py-2.5 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-all"
             />
           </div>

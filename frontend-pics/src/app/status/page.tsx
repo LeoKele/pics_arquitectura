@@ -54,7 +54,7 @@ const ServiceRow = ({ nombre, icono, estado }: { nombre: string, icono: string, 
 };
 
 export default function StatusPage() {
-  const API_URL = "http://34.63.158.31:8000";
+  const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
   const [globalState, setGlobalState] = useState({
     estado: "LOADING",
