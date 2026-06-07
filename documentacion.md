@@ -136,9 +136,14 @@ El desarrollo del modelo de detección vial atravesó tres intentos metodológic
     *   **ProgLoss y STAL:** YOLO26 implementa pérdidas progresivas (*ProgLoss* - Progressive Loss Balancing) y asignación de etiquetas atenta a targets diminutos (*STAL* - Small-Target-Aware Label Assignment), lo cual optimiza el recall de fallas viales pequeñas localizadas en la distancia en el horizonte.
         * Hacen que la red neuronal sea mucho más sensible a los daños pequeños u ocultos lejos de la cámara, permitiendo registrar grietas finas o baches antes de que el vehículo pase sobre ellos.
     *   **MuSGD Optimizer:** Introduce una técnica híbrida inspirada en el entrenamiento de Grandes Modelos de Lenguaje (LLMs) para lograr una convergencia de curvas más rápida y un aprendizaje estable.
-        *Es un optimizador inteligente que hace que el modelo aprenda a detectar anomalías en menos épocas de entrenamiento, reduciendo a la mitad los tiempos de desarrollo en la nube.
-*   **RT-DETR (Real-Time Detection Transformer):** Se plantea la investigación de esta arquitectura basada en Transformers para el desarrollo futuro del proyecto. A diferencia de las grillas locales y rígidas de la familia YOLO (CNNs), RT-DETR utiliza mecanismos de atención global que analizan la imágen como un todo. Esto es teóricamente prometedor para capturar relaciones de contexto global en la calzada, mitigando el impacto de la variabilidad local (*Domain Shift*) y reduciendo falsos positivos debidos a sombras o contrastes intensos.
-    > **Nota importante:** RT-DETR no ha sido entrenado ni testeado aún en esta fase; permanece categorizado como una oportunidad de mejora y trabajo futuro.
+        * Es un optimizador inteligente que hace que el modelo aprenda a detectar anomalías en menos épocas de entrenamiento, reduciendo a la mitad los tiempos de desarrollo en la nube.
+*   **RT-DETR (Real-Time Detection Transformer):** Se evaluó esta arquitectura basada en Transformers. En las pruebas de validación con nuestro dataset, las métricas finales de detección por clase (Precision, Recall, mAP50 y mAP50-95) resultaron en:
+    *   **Global (All):** Precision: 0.670 | Recall: 0.476 | mAP50: 0.551 | mAP50-95: 0.223
+    *   **`D20` (Grietas):** Precision: 0.670 | Recall: 0.474 | mAP50: 0.520 | mAP50-95: 0.229
+    *   **`D40` (Baches):** Precision: 0.617 | Recall: 0.276 | mAP50: 0.337 | mAP50-95: 0.128
+    *   **`calle_tierra`:** Precision: 0.722 | Recall: 0.670 | mAP50: 0.795 | mAP50-95: 0.312
+
+    Al contrastar estos números con las métricas obtenidas por **YOLO** (detalladas abajo), se evidenció que el modelo YOLO provee un desempeño superior en la detección de fallas viales para nuestro caso de estudio, por lo que fue seleccionado para el pipeline de producción final.
 
 ### 3.5 Tabla de Resultados y Métricas Finales
 Las siguientes métricas detallan el rendimiento del modelo final de producción (**YOLO26m** con el **Dataset Mixto V2 Crudo** a **1024px**), extraídas directamente de las bitácoras del notebook [04_1_documentacion_entrenamiento.ipynb](https://github.com/LeoKele/PICS_Sistema_de_mapeo_dinamico_vial/blob/main/notebooks/04_1_documentacion_entrenamiento.ipynb):
