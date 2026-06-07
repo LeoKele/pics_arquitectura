@@ -56,7 +56,7 @@ services: # Aquí declaramos todos los contenedores (las piezas) de nuestro sist
     volumes:
       - ./api:/api
 
-  worker_procesamiento:
+  worker_inferencia:
     build: ./worker
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@base_datos:5432/${POSTGRES_DB}
@@ -71,7 +71,7 @@ services: # Aquí declaramos todos los contenedores (las piezas) de nuestro sist
 
   worker_preprocesamiento:
     build: ./worker
-    command: python worker_preprocesamiento.py
+    command: python preprocesamiento.py
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@base_datos:5432/${POSTGRES_DB}
       - REDIS_HOST=redis_queue
@@ -125,8 +125,8 @@ services: # Aquí declaramos todos los contenedores (las piezas) de nuestro sist
 
   frontend:
     build:
-      context: ./front
-      dockerfile: Dockerfile.frontend
+      context: ./frontend-pics
+      dockerfile: Dockerfile
     container_name: pics_dashboard
     ports:
       - "8080:80"
