@@ -70,7 +70,6 @@ Este comando levantará la base de datos, el almacenamiento MinIO, Redis, la API
 *   **Grafana**: Accesible en `http://localhost:3000`.
 *   **MinIO Console**: Accesible en `http://localhost:9001`.
 
-> [!NOTE]
 > **Conexión a la API (Local vs Nube):**
 > * **Local (Desarrollo/Demo):** No requiere ninguna configuración. El frontend en Docker y la app de PozoCam se conectan automáticamente a la API local en `http://localhost:8000`.
 > * **Nube (Nuestro Despliegue de Referencia):** Para nuestro entorno en Google Cloud, la IP pública del backend de producción (`http://34.63.158.31:8000`) se inyecta al compilar la imagen usando `--build-arg NEXT_PUBLIC_API_URL=...`. Esto lo realiza de forma automática nuestro workflow de **GitHub Actions** en cada push a `main`.
