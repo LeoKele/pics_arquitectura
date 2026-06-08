@@ -16,6 +16,7 @@ spec:
         - name: api-fastapi
           # Asegurate de que esta sea la ruta exacta de tu Artifact Registry
           image: us-central1-docker.pkg.dev/pics-moreno-cloud/pics-repo/api-fastapi:v1
+          imagePullPolicy: Always
           env:
             - name: REDIS_HOST
               value: "redis-queue"

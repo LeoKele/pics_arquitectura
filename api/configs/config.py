@@ -9,6 +9,7 @@ class Settings:
     OLLAMA_URL: str = os.getenv("OLLAMA_URL", "http://ollama:11434")
     OLLAMA_TOKEN: str = os.getenv("OLLAMA_TOKEN", "")
     BUCKET_NAME: str = "videos-crudos"
+    MINIO_ENDPOINT: str = os.getenv("MINIO_ENDPOINT", "almacenamiento-objetos:9000")
     MINIO_PUBLIC_URL: str = os.getenv("MINIO_PUBLIC_URL", "http://localhost:9000")
 
 

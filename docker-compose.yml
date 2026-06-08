@@ -40,6 +40,7 @@ services: # Aquí declaramos todos los contenedores (las piezas) de nuestro sist
       - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@base_datos:5432/${POSTGRES_DB}
       - MINIO_ROOT_USER=${MINIO_ROOT_USER}
       - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
+      - MINIO_PUBLIC_URL=${MINIO_PUBLIC_URL}
       - REDIS_HOST=redis_queue
       - OLLAMA_URL=http://ollama:11434
     ports:
@@ -54,7 +55,7 @@ services: # Aquí declaramos todos los contenedores (las piezas) de nuestro sist
       ollama:
         condition: service_started
     volumes:
-      - ./api:/api
+      - ./api:/app
 
   worker_inferencia:
     build: ./worker

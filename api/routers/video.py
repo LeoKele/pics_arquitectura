@@ -7,7 +7,7 @@ import models
 import schemas
 from configs.config import settings
 from database import get_db
-from dependencias import minio_client, r, s3_public_client
+from dependencias import minio_client, r, s3_internal_client, s3_public_client
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from minio.error import S3Error
 from openai import AsyncOpenAI
@@ -116,7 +116,7 @@ def iniciar_upload_multipart(request: IniciarUploadRequest):
     try:
         if not minio_client.bucket_exists(settings.BUCKET_NAME):
             minio_client.make_bucket(settings.BUCKET_NAME)
-        response = s3_public_client.create_multipart_upload(
+        response = s3_internal_client.create_multipart_upload(
             Bucket=settings.BUCKET_NAME,
             Key=request.filename,
             ContentType=request.content_type,
@@ -153,7 +153,7 @@ def finalizar_upload_multipart(
     request: FinalizarUploadRequest, db: Session = Depends(get_db)
 ):
     try:
-        s3_public_client.complete_multipart_upload(
+        s3_internal_client.complete_multipart_upload(
             Bucket=settings.BUCKET_NAME,
             Key=request.filename,
             UploadId=request.upload_id,
@@ -162,7 +162,7 @@ def finalizar_upload_multipart(
         json_filename = request.filename.replace(".webm", ".json")
 
         try:
-            s3_public_client.put_object(
+            s3_internal_client.put_object(
                 Bucket=settings.BUCKET_NAME,
                 Key=json_filename,
                 Body=json.dumps(request.telemetria),

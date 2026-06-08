@@ -69,7 +69,7 @@ Este comando levantará la base de datos, el almacenamiento MinIO, Redis, la API
 *   **Frontend Dashboard (Next.js)**: Accesible en `http://localhost:8080`.
 *   **Grafana**: Accesible en `http://localhost:3000`.
 *   **MinIO Console**: Accesible en `http://localhost:9001`.
-> [!NOTE]
+
 > **Conexión a la API y Servicios (Local vs Nube):**
 > * **Local (Desarrollo/Demo):** No requiere ninguna configuración. El frontend en Docker y la app de PozoCam se conectan automáticamente a los servicios locales (API en `http://localhost:8000`, MinIO en `http://localhost:9000` y Grafana en `http://localhost:3000`).
 > * **Nube (Nuestro Despliegue de Referencia):** Para nuestro entorno en Google Cloud, las IPs públicas de producción (API: `http://34.63.158.31:8000`, MinIO: `http://35.194.31.183:9000` y Grafana: `http://34.172.225.250:3000`) se inyectan al compilar la imagen usando los correspondientes argumentos `--build-arg`. Esto lo realiza de forma automática nuestro workflow de **GitHub Actions** en cada push a `main`.
@@ -234,11 +234,12 @@ docker push us-central1-docker.pkg.dev/pics-moreno-cloud/pics-repo/worker-base:v
 
 # 3. Frontend (React / Next.js)
 # NOTA: Si compilás de forma manual (sin usar el CI/CD de GitHub Actions), debés pasar las IPs de GCP con --build-arg
-docker build -t us-central1-docker.pkg.dev/pics-moreno-cloud/pics-repo/frontend:v1 \
-  --build-arg NEXT_PUBLIC_API_URL=http://34.63.158.31:8000 \
-  --build-arg NEXT_PUBLIC_MINIO_URL=http://35.194.31.183:9000 \
-  --build-arg NEXT_PUBLIC_GRAFANA_URL=http://34.172.225.250:3000 \
+docker build -t us-central1-docker.pkg.dev/pics-moreno-cloud/pics-repo/frontend:v1 ^
+  --build-arg NEXT_PUBLIC_API_URL=http://34.63.158.31:8000 ^
+  --build-arg NEXT_PUBLIC_MINIO_URL=http://35.194.31.183:9000 ^
+  --build-arg NEXT_PUBLIC_GRAFANA_URL=http://34.172.225.250:3000 ^
   -f ./frontend-pics/Dockerfile ./frontend-pics
+
 docker push us-central1-docker.pkg.dev/pics-moreno-cloud/pics-repo/frontend:v1
 ```
 
