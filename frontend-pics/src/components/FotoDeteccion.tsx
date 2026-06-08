@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import { Falla } from "../types";
 import React from "react";
+import Swal from "sweetalert2";
 
 interface Props {
   falla: Falla | null;
@@ -36,8 +37,35 @@ export default function FotoDeteccion({ falla, videoSeleccionado, onAuditoriaCom
   }, [falla]);
 
   const handleAuditoria = async (nuevoEstado: string) => {
-    const accionTexto = nuevoEstado === 'falso_positivo' ? 'descartar esta detección (Falso Positivo)' : 'marcar esta detección como Verificada';
-    if (!window.confirm(`¿Estás seguro de que querés ${accionTexto}?`)) return;
+    const esDescarte = nuevoEstado === 'falso_positivo';
+    const titulo = esDescarte ? '¿Descartar detección?' : '¿Verificar detección?';
+    const texto = esDescarte
+      ? 'Esta detección se marcará como Falso Positivo.'
+      : 'Esta detección se marcará como Verificada.';
+
+    const resultado = await Swal.fire({
+      title: titulo,
+      text: texto,
+      icon: 'question',
+      iconColor: '#00aaff',
+      showCancelButton: true,
+      confirmButtonText: esDescarte ? 'Sí, descartar' : 'Sí, verificar',
+      cancelButtonText: 'Cancelar',
+      background: '#0a0a0a',
+      color: '#e0e0e0',
+      confirmButtonColor: '#00aaff',
+      cancelButtonColor: '#222',
+      customClass: {
+        popup: 'border border-[#222] rounded-xl',
+        title: 'text-[#00aaff] font-bold text-xl',
+        htmlContainer: 'text-gray-300 text-sm mt-2',
+        confirmButton: 'bg-[#00aaff] text-black px-4 py-2 rounded-lg font-bold text-sm hover:bg-white transition-all cursor-pointer mr-2',
+        cancelButton: 'bg-[#222] border border-[#333] text-gray-300 px-4 py-2 rounded-lg font-semibold text-sm hover:bg-[#333] transition-all cursor-pointer'
+      },
+      buttonsStyling: false
+    });
+
+    if (!resultado.isConfirmed) return;
 
     try {
       const res = await fetch(`${API_URL}/api/v1/detecciones/${falla?.id}?nuevo_estado=${nuevoEstado}`, {
@@ -49,9 +77,43 @@ export default function FotoDeteccion({ falla, videoSeleccionado, onAuditoriaCom
 
       if (onAuditoriaCompletada) onAuditoriaCompletada();
 
+      Swal.fire({
+        title: esDescarte ? 'Descartada' : 'Verificada',
+        text: esDescarte ? 'La detección fue descartada.' : 'La detección fue verificada correctamente.',
+        icon: 'success',
+        iconColor: '#00aaff',
+        background: '#0a0a0a',
+        color: '#e0e0e0',
+        confirmButtonText: 'Aceptar',
+        confirmButtonColor: '#00aaff',
+        customClass: {
+          popup: 'border border-[#222] rounded-xl',
+          title: 'text-[#00aaff] font-bold text-xl',
+          htmlContainer: 'text-gray-300 text-sm mt-2',
+          confirmButton: 'bg-[#00aaff] text-black px-4 py-2 rounded-lg font-bold text-sm hover:bg-white transition-all cursor-pointer'
+        },
+        buttonsStyling: false
+      });
+
     } catch (err) {
       console.error(err);
-      alert("Ocurrió un error al auditar la detección. Revisá los logs en Grafana.");
+      Swal.fire({
+        title: 'Error',
+        text: 'Ocurrió un error al auditar la detección. Revisá los logs en Grafana.',
+        icon: 'error',
+        iconColor: '#ff3d3d',
+        background: '#0a0a0a',
+        color: '#e0e0e0',
+        confirmButtonText: 'Aceptar',
+        confirmButtonColor: '#ff3d3d',
+        customClass: {
+          popup: 'border border-[#ff3d3d]/30 rounded-xl',
+          title: 'text-[#ff3d3d] font-bold text-xl',
+          htmlContainer: 'text-gray-300 text-sm mt-2',
+          confirmButton: 'bg-[#ff3d3d] text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-red-600 transition-all cursor-pointer'
+        },
+        buttonsStyling: false
+      });
     }
   };
 
@@ -159,7 +221,7 @@ export default function FotoDeteccion({ falla, videoSeleccionado, onAuditoriaCom
       </div>
 
       {/* METADATOS */}
-      <div className="bg-[#121212] p-4 rounded-lg border border-[#222] text-[1.05rem] flex flex-col gap-3 shadow-inner">
+      <div className="bg-[#121212] p-3 rounded-lg border border-[#222] text-sm flex flex-col gap-2 shadow-inner">
         <div className="flex items-center gap-2">
           <i className="fa-solid fa-tag text-gray-500 w-5 text-center"></i>
           <strong className="text-gray-400">Tipo:</strong>
@@ -186,21 +248,21 @@ export default function FotoDeteccion({ falla, videoSeleccionado, onAuditoriaCom
 
       {/* BOTONES AUDITORIA */}
       {falla.estado_auditoria === 'verificado' ? (
-        <div className="mt-4 p-3 bg-[#00aaff]/10 backdrop-blur-md border border-[#00aaff]/50 shadow-[0_0_15px_rgba(0,170,255,0.2)] rounded-lg text-[#00aaff] text-center font-bold w-full text-[0.95rem]">
+        <div className="mt-3.5 p-2 bg-[#00aaff]/10 backdrop-blur-md border border-[#00aaff]/50 shadow-[0_0_10px_rgba(0,170,255,0.2)] rounded-lg text-[#00aaff] text-center font-bold w-full text-xs sm:text-sm">
           <i className="fa-solid fa-shield-halved mr-2"></i> Falla Verificada
         </div>
       ) : (
-        <div className="flex gap-3 mt-4">
+        <div className="flex gap-2.5 mt-3.5">
           <button
             onClick={() => handleAuditoria('verificado')}
-            className="flex-1 bg-[#00aaff]/10 backdrop-blur-md border border-[#00aaff]/50 text-[#00aaff] py-2.5 rounded-lg font-bold flex justify-center items-center gap-2 hover:bg-[#00aaff]/30 hover:shadow-[0_0_15px_rgba(0,170,255,0.4)] transition-all duration-300"
+            className="flex-1 bg-[#00aaff]/10 backdrop-blur-md border border-[#00aaff]/50 text-[#00aaff] py-1.5 rounded-lg font-bold flex justify-center items-center gap-1.5 hover:bg-[#00aaff]/30 hover:shadow-[0_0_10px_rgba(0,170,255,0.4)] transition-all duration-300 text-xs sm:text-sm"
           >
             <i className="fa-solid fa-check-double"></i> Verificar
           </button>
 
           <button
             onClick={() => handleAuditoria('falso_positivo')}
-            className="flex-1 bg-[#0055aa]/10 backdrop-blur-md border border-[#0055aa]/50 text-[#33ccff] py-2.5 rounded-lg font-bold flex justify-center items-center gap-2 hover:bg-[#0055aa]/40 hover:shadow-[0_0_15px_rgba(0,85,170,0.5)] transition-all duration-300"
+            className="flex-1 bg-[#0055aa]/10 backdrop-blur-md border border-[#0055aa]/50 text-[#33ccff] py-1.5 rounded-lg font-bold flex justify-center items-center gap-1.5 hover:bg-[#0055aa]/40 hover:shadow-[0_0_10px_rgba(0,85,170,0.5)] transition-all duration-300 text-xs sm:text-sm"
           >
             <i className="fa-solid fa-trash-can"></i> Falso Pos.
           </button>
