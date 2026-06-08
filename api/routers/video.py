@@ -21,7 +21,7 @@ logger = logging.getLogger("api.video")
 
 # --- CLIENTE DEL PROFESOR ---
 ollama_client = AsyncOpenAI(
-    base_url=f"{settings.OLLAMA_URL}/v1", api_key=settings.OLLAMA_TOKEN
+    base_url=f"{settings.OLLAMA_URL}/v1", api_key=settings.OLLAMA_TOKEN or "ollama"
 )
 
 

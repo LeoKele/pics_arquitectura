@@ -12,6 +12,15 @@ COPY . .
 # Argumento de compilación para definir la API de producción
 ARG NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+
+# Argumento de compilación para definir la URL pública de MinIO
+ARG NEXT_PUBLIC_MINIO_URL
+ENV NEXT_PUBLIC_MINIO_URL=$NEXT_PUBLIC_MINIO_URL
+
+# Argumento de compilación para definir la URL pública de Grafana
+ARG NEXT_PUBLIC_GRAFANA_URL
+ENV NEXT_PUBLIC_GRAFANA_URL=$NEXT_PUBLIC_GRAFANA_URL
+
 ENV NEXT_TELEMETRY_DISABLED=1
 
 RUN npm run build

@@ -19,6 +19,7 @@ interface DashboardProps {
 
 export default function Dashboard({ rol, onLogout }: DashboardProps) {
   const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+  const GRAFANA_URL = process.env.NEXT_PUBLIC_GRAFANA_URL || "http://localhost:3000";
 
   const [stats, setStats] = useState({ baches: 0, videos: 0 });
   const [listaVideos, setListaVideos] = useState<any[]>([]);
@@ -104,7 +105,7 @@ export default function Dashboard({ rol, onLogout }: DashboardProps) {
         <div className="flex items-center gap-4">
           {rol === 'admin' && (
             <a
-              href="http://34.172.225.250:3000/"
+              href={GRAFANA_URL}
               target="_blank"
               rel="noopener noreferrer"
               className="bg-[#121212] text-[#e0e0e0] border border-[#333] rounded-full px-5 py-2 text-[1.05rem] font-semibold flex items-center gap-2 hover:bg-[#1a1a1a] hover:border-[#00aaff]/50 hover:text-white transition-all no-underline shadow-[0_0_10px_rgba(0,0,0,0.5)]"
