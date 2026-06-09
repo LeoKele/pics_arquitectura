@@ -1,7 +1,7 @@
 import asyncio
-import json
 import logging
 import re
+
 import models
 from configs.config import settings
 from database import get_db
@@ -83,14 +83,14 @@ async def generar_reporte(
                 query_global = text("""
                     WITH clusters AS (
                         SELECT tipo_dano, geom,
-                               -- MAGIA ACÁ: Cambiamos 0.00005 a 0.0015 
+                               -- MAGIA ACÁ: Cambiamos 0.00005 a 0.0015
                                ST_ClusterDBSCAN(geom, 0.0015, 1)
                                OVER(PARTITION BY tipo_dano) as cluster_id
                         FROM deteccion WHERE video_id IN :ids AND estado_auditoria != 'falso_positivo'
                     )
                     SELECT
                         tipo_dano,
-                        COUNT(*) as cantidad_baches, 
+                        COUNT(*) as cantidad_baches,
                         ST_Y(ST_Centroid(ST_Collect(geom))) as lat,
                         ST_X(ST_Centroid(ST_Collect(geom))) as lng
                     FROM clusters
@@ -105,13 +105,13 @@ async def generar_reporte(
                 for b in baches_agrupados:
                     try:
                         await asyncio.sleep(1.2)
-                        
+
                         contexto = await asyncio.wait_for(
                             obtener_contexto_geografico(b.lat, b.lng), timeout=30.0
                         )
                     except (asyncio.TimeoutError, Exception) as e:
                         # Ahora si falla, lo vemos en la consola
-                        logger.error(f"OSM falló para {b.lat}, {b.lng}. Motivo: {e}") 
+                        logger.error(f"OSM falló para {b.lat}, {b.lng}. Motivo: {e}")
                         contexto = {
                             "calle": f"Zona GPS {b.lat:.4f}, {b.lng:.4f}",
                             "tipo_calle": "Vía sin mapear",
@@ -139,7 +139,9 @@ async def generar_reporte(
                                 entrecalles
                             )
                     else:
-                        agrupacion_calles[calle]["hallazgos"].extend([b.tipo_dano] * b.cantidad_baches)
+                        agrupacion_calles[calle]["hallazgos"].extend(
+                            [b.tipo_dano] * b.cantidad_baches
+                        )
 
                     for p in contexto["pois_cercanos"]:
                         agrupacion_calles[calle]["pois"].add(p)
@@ -179,13 +181,14 @@ async def generar_reporte(
                     detalle_linea = f"- {calle} ({info['tipo']}): {conteo_str}{pois_str}. [Score Prioridad: {score:.1f}]"
                     detalles_contexto_vial.append(detalle_linea)
 
-
                 detalles_limpios = []
                 for detalle in detalles_contexto_vial:
                     # Borra "[Score Prioridad: X.X]"
-                    detalle_sin_score = re.sub(r'\[Score Prioridad:.*?\]', '', detalle)
+                    detalle_sin_score = re.sub(r"\[Score Prioridad:.*?\]", "", detalle)
                     # Borra "(Vía desconocida)"
-                    detalle_limpio = detalle_sin_score.replace('(Vía desconocida)', '').strip()
+                    detalle_limpio = detalle_sin_score.replace(
+                        "(Vía desconocida)", ""
+                    ).strip()
                     detalles_limpios.append(detalle_limpio)
 
                 contexto_hallazgos_str = "\n".join(detalles_limpios)
@@ -284,7 +287,7 @@ def obtener_reporte(video_id: int, db: Session = Depends(get_db)):
             .first()
         )
     if not reporte:
-        raise HTTPException(status_code=404, detail=f"No se encontró ningún reporte.")
+        raise HTTPException(status_code=404, detail="No se encontró ningún reporte.")
     return {
         "reporte_id": reporte.id,
         "contenido": reporte.contenido,

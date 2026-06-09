@@ -2,9 +2,9 @@ name: Deploy API to GKE
 on:
   push:
     branches:
-      - main 
+      - main
     paths:
-      - 'api/**' 
+      - 'api/**'
 
 jobs:
   build-and-deploy:
@@ -25,13 +25,13 @@ jobs:
       uses: google-github-actions/get-gke-credentials@v2
       with:
         cluster_name: 'pics-cluster'
-        location: 'us-central1-a'       
+        location: 'us-central1-a'
 
     - name: Build y Push de la imagen
       run: |
-        cd api 
+        cd api
         IMAGE_TAG="us-central1-docker.pkg.dev/pics-moreno-cloud/pics-repo/api-fastapi:v-${GITHUB_SHA::7}"
-        
+
         docker build -t $IMAGE_TAG .
         docker push $IMAGE_TAG
 

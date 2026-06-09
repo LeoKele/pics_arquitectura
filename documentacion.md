@@ -309,7 +309,7 @@ El repositorio de la arquitectura de software cuenta con un pipeline de CI/CD au
 6.  **Despliegue Continuo (Rolling Update):** Conecta con el clúster GKE usando `google-github-actions/get-gke-credentials@v2` y ejecuta `kubectl set image` para actualizar las imágenes activas en los contenedores del cluster de GKE sin caída del servicio.
 
 ### 7.3 Auto-escalado Basado en Eventos (KEDA)
-La arquitectura cuenta con un sistema de escalado dinámico para los nodos de procesamiento (workers), implementado a través de KEDA (Kubernetes Event-driven Autoscaling). 
+La arquitectura cuenta con un sistema de escalado dinámico para los nodos de procesamiento (workers), implementado a través de KEDA (Kubernetes Event-driven Autoscaling).
 
 Este componente monitorea en tiempo real las colas de mensajes en Redis y ajusta la cantidad de pods necesarios, optimizando el consumo de recursos. Se encuentra configurado en el archivo `k8s/keda-workers.yaml`:
 
@@ -434,7 +434,7 @@ Para entender cómo opera el sistema de forma integrada, a continuación se desc
 1. CAPTURA (PozoCam) ────────► Graba video .webm + coordenadas GPS en la base IndexedDB del móvil.
            │
            ▼
-2. SUBIDA (Multipart) ───────► Al recuperar señal, divide el video en partes de 5MB y lo sube a MinIO. 
+2. SUBIDA (Multipart) ───────► Al recuperar señal, divide el video en partes de 5MB y lo sube a MinIO.
            │                   Envía las coordenadas de telemetría a la API FastAPI.
            ▼
 3. PROCESAMIENTO (Workers) ──► El Worker Preprocesamiento reduce frames y quita duplicados.
@@ -453,6 +453,6 @@ Para entender cómo opera el sistema de forma integrada, a continuación se desc
 
 ## 10. Conclusión Final
 
-El **Sistema de Mapeo Dinámico Vial (PICS)** representa una solución tecnológica robusta, modular y de alto valor técnico para la modernización de la gestión urbana en municipios locales. La unificación de modelos de visión computacional de frontera como `YOLO26m` con bases de datos espaciales y servicios de procesamiento distribuido demuestra que es factible automatizar el relevamiento de daños de la calzada de forma eficiente y económica. 
+El **Sistema de Mapeo Dinámico Vial (PICS)** representa una solución tecnológica robusta, modular y de alto valor técnico para la modernización de la gestión urbana en municipios locales. La unificación de modelos de visión computacional de frontera como `YOLO26m` con bases de datos espaciales y servicios de procesamiento distribuido demuestra que es factible automatizar el relevamiento de daños de la calzada de forma eficiente y económica.
 
 El desacoplamiento de la inferencia pesada en workers asíncronos coordinados mediante colas de Redis, la resiliencia offline del cliente PozoCam mediante IndexedDB, y el resguardo de la privacidad de los transeúntes (censura de rostros y patentes) proveen una línea de base en ingeniería de software lista para producción. Asimismo, la integración local y privada de Ollama y la arquitectura de MLOps con un ciclo interactivo de *Human-in-the-Loop* (HITL) garantizan que el sistema no solo detecte problemas viales en tiempo real, sino que aprenda de sus propios errores de manera continua y compile informes ejecutivos listos para la toma de decisiones, todo en un entorno totalmente administrado en la nube de Google Cloud Platform y Kubernetes.

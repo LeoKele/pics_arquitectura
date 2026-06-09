@@ -1,19 +1,19 @@
+import hashlib
 import logging
 import os
-from datetime import datetime
-import hashlib
-import jwt
 from datetime import datetime, timedelta
-from pydantic import BaseModel
+
 import httpx
+import jwt
 import models
 from configs.config import settings
 from database import get_db
 from dependencias import minio_client, r
 from fastapi import APIRouter, Depends, HTTPException, Response, status
+from models import Usuario
+from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
-from models import Usuario
 
 router = APIRouter()
 logger = logging.getLogger("api.sistema")
@@ -131,31 +131,34 @@ def obtener_inventario_archivos(db: Session = Depends(get_db)):
         logger.error(f"Error en inventario: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-SECRET_KEY = os.getenv("JWT_SECRET_KEY", "default_secret_key_for_development_moreno_pics_2026")
+
+SECRET_KEY = os.getenv(
+    "JWT_SECRET_KEY", "default_secret_key_for_development_moreno_pics_2026"
+)
 ALGORITHM = "HS256"
+
 
 class LoginRequest(BaseModel):
     username: str
     password: str
 
+
 def hashear_password(password: str):
     return hashlib.sha256(password.encode()).hexdigest()
+
 
 @router.post("/api/v1/login")
 def login(req: LoginRequest, db: Session = Depends(get_db)):
     user = db.query(Usuario).filter(Usuario.username == req.username).first()
-    
+
     if not user or user.password_hash != hashear_password(req.password):
         raise HTTPException(status_code=401, detail="Usuario o contraseña incorrectos")
-    
+
     payload = {
         "sub": user.username,
         "rol": user.rol,
-        "exp": datetime.utcnow() + timedelta(hours=12) # El token dura 12 horas
+        "exp": datetime.utcnow() + timedelta(hours=12),  # El token dura 12 horas
     }
     token = jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
-    
-    return {
-        "access_token": token, 
-        "rol": user.rol
-    }
+
+    return {"access_token": token, "rol": user.rol}

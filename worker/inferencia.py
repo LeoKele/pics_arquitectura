@@ -24,7 +24,6 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import declarative_base, sessionmaker
 from ultralytics import YOLO
-from ultralytics.utils.plotting import Annotator, colors
 
 # Logging
 logging.basicConfig(
@@ -170,7 +169,7 @@ while True:
                     tiempo_ms = punto.get("elapsed_ms", 0.0)
 
                     if lat is not None and lng is not None:
-                        if esta_en_moreno(lat, lng):  
+                        if esta_en_moreno(lat, lng):
                             nueva_telemetria = Telemetria(
                                 video_id=video_id,
                                 tiempo=float(tiempo_ms),
@@ -193,9 +192,10 @@ while True:
 
             if not minio_client.bucket_exists("detecciones"):
                 minio_client.make_bucket("detecciones")
-            
+
             try:
                 import json
+
                 policy = {
                     "Version": "2012-10-17",
                     "Statement": [
@@ -203,9 +203,9 @@ while True:
                             "Effect": "Allow",
                             "Principal": {"AWS": ["*"]},
                             "Action": ["s3:GetObject"],
-                            "Resource": ["arn:aws:s3:::detecciones/*"]
+                            "Resource": ["arn:aws:s3:::detecciones/*"],
                         }
-                    ]
+                    ],
                 }
                 minio_client.set_bucket_policy("detecciones", json.dumps(policy))
             except Exception as pe:
@@ -334,7 +334,7 @@ while True:
                                         minio_client.remove_object(
                                             "detecciones", duplicado.frame_minio_path
                                         )
-                                    except Exception as e:
+                                    except Exception:
                                         pass
 
                                 x1, y1, x2, y2 = map(int, box.xyxy[0])
@@ -414,5 +414,5 @@ while True:
         finally:
             db.close()
 
-    except Exception as e:
+    except Exception:
         time.sleep(2)

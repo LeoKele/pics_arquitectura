@@ -4,10 +4,10 @@ metadata:
   name: keda-escala-preprocesamiento
 spec:
   scaleTargetRef:
-    name: worker-preprocesamiento 
+    name: worker-preprocesamiento
   minReplicaCount: 0             # Si no hay videos, se apaga (0)
   maxReplicaCount: 3
-  cooldownPeriod: 1800            # Son 30 minutoss 
+  cooldownPeriod: 1800            # Son 30 minutoss
   triggers:
   - type: redis
     metadata:
@@ -21,8 +21,8 @@ metadata:
   name: keda-escala-inferencia
 spec:
   scaleTargetRef:
-    name: worker-inferencia      
-  minReplicaCount: 0             
+    name: worker-inferencia
+  minReplicaCount: 0
   maxReplicaCount: 4
   cooldownPeriod: 1800              # Son 30 minutoss
   triggers:

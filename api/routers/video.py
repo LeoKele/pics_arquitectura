@@ -319,7 +319,10 @@ async def preguntar_a_video(
             model="llama3.2:3b",
             messages=mensajes,
             tools=herramientas,
-            tool_choice={"type": "function", "function": {"name": "consultar_mapa_osm"}}, 
+            tool_choice={
+                "type": "function",
+                "function": {"name": "consultar_mapa_osm"},
+            },
             stream=False,
             temperature=0.1,
         )

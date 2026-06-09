@@ -2,7 +2,6 @@ import logging
 import os
 import time
 import traceback
-from datetime import datetime
 
 import cv2
 import numpy as np
@@ -109,19 +108,17 @@ while True:
                     frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
 
                 frame_count += 1
-                if frame_count % 6 != 0:  
+                if frame_count % 6 != 0:
                     continue
 
-                
                 gris_actual = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
                 if frame_anterior_gris is not None:
                     diff = cv2.absdiff(frame_anterior_gris, gris_actual)
                     _, thresh = cv2.threshold(diff, 25, 255, cv2.THRESH_BINARY)
                     porcentaje_cambio = (np.count_nonzero(thresh) / thresh.size) * 100
 
-                    
                     if porcentaje_cambio < 2.0:
-                        continue  
+                        continue
 
                 frame_anterior_gris = gris_actual
 
@@ -129,9 +126,7 @@ while True:
 
                 nombre_frame = f"frame_{tiempo_ms}.jpg"
                 ruta_local = f"/tmp/{nombre_frame}"
-                cv2.imwrite(
-                    ruta_local, frame
-                )  
+                cv2.imwrite(ruta_local, frame)
 
                 minio_client.fput_object(
                     "frames-procesados",
@@ -139,7 +134,7 @@ while True:
                     ruta_local,
                     content_type="image/jpeg",
                 )
-                os.remove(ruta_local)  
+                os.remove(ruta_local)
                 frames_guardados += 1
 
             cap.release()
@@ -165,5 +160,5 @@ while True:
         finally:
             db.close()
 
-    except Exception as e:
+    except Exception:
         time.sleep(2)

@@ -2,7 +2,7 @@ from datetime import datetime
 
 from database import Base
 from geoalchemy2 import Geometry
-from sqlalchemy import JSON, Column, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, Column, DateTime, Float, ForeignKey, Integer, String
 
 
 class Video(Base):
@@ -56,4 +56,4 @@ class Usuario(Base):
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String, unique=True, index=True)
     password_hash = Column(String)
-    rol = Column(String) 
+    rol = Column(String)
