@@ -15,6 +15,7 @@ spec:
       containers:
         - name: frontend
           image: us-central1-docker.pkg.dev/pics-moreno-cloud/pics-repo/frontend:v1
+          imagePullPolicy: Always
           ports:
             - containerPort: 80
 ---

@@ -18,6 +18,22 @@ for intento in range(10):
     try:
         models.Base.metadata.create_all(bind=engine)
         logger.info("Tablas creadas/verificadas correctamente.")
+        
+        # Sembrar usuarios por defecto si la tabla está vacía
+        from sqlalchemy.orm import Session
+        from models import Usuario
+        import hashlib
+        with Session(engine) as session:
+            if session.query(Usuario).count() == 0:
+                logger.info("Sembrando usuarios por defecto...")
+                admin_hash = hashlib.sha256(b"admin").hexdigest()
+                op_hash = hashlib.sha256(b"operador").hexdigest()
+                session.add_all([
+                    Usuario(username="admin", password_hash=admin_hash, rol="admin"),
+                    Usuario(username="operador", password_hash=op_hash, rol="operador")
+                ])
+                session.commit()
+                logger.info("Sembrador: Usuarios por defecto creados con éxito.")
         break
     except Exception as e:
         logger.warning(f"BD no lista, reintentando en 3s... ({intento+1}/10): {e}")

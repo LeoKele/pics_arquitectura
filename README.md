@@ -14,6 +14,8 @@ El proyecto utiliza Docker Compose para orquestar los siguientes servicios:
 - **Almacenamiento de Objetos (MinIO)**: Guarda archivos crudos (`.mp4`, `.json`) y las capturas de las detecciones.
 - **Modelo Ollama**: Ejecuta el modelo de lenguaje "llama3.2:3b" localmente para generar informes ejecutivos.
 - **Observabilidad (Loki + Promtail + Grafana)**: Centralización de logs y monitoreo en tiempo real.
+- **Frontend Dashboard (Next.js / React)**: Panel visual interactivo para visualizar el mapa de detecciones, auditar daños, chatear con la IA de reportes y gestionar el sistema.
+- **PozoCam App (Next.js / React)**: Aplicación móvil para el dispositivo de registro (captura de video y telemetría GPS).
 
 ## Estructura del Repositorio
 
@@ -25,11 +27,13 @@ El código se organiza de la siguiente manera:
     - `models.py` & `schemas.py`: Definición de tablas de base de datos y validación de datos (Pydantic).
     - `dependencias.py`: Conexiones a servicios externos (Redis, MinIO).
 - **worker/**: Lógica de procesamiento en segundo plano.
-    - `worker_preprocesamiento.py`: Lógica de extracción de frames y sincronización GPS.
-    - `worker.py`: Orquestador de la inferencia con el modelo YOLO.
+    - `preprocesamiento.py`: Lógica de extracción de frames y sincronización GPS.
+    - `inferencia.py`: Orquestador de la inferencia con el modelo YOLO.
     - `anonimizador.py`: Módulo que gestiona la difuminación de rostros y patentes.
     - `best.pt`: Pesos del modelo YOLO entrenado para detección de daños.
     - `yolov8s-face-lindevs.pt` y `license-plate-finetune-v1s.pt`: Pesos de los modelos de censura
+- **frontend-pics/**: Aplicación Dashboard en Next.js (React) y TailwindCSS para visualización de mapas y auditoría de baches.
+- **front-pozocam-react/**: Aplicación móvil en Next.js (React) para captura de video y sincronización GPS del vehículo.
 - **observabilidad/**: Archivos de configuración para el stack de monitoreo (Promtail).
 - **docker-compose.yml**: Definición de toda la infraestructura como código.
 
@@ -54,11 +58,21 @@ detect-secrets scan > .secrets.baseline
 pre-commit install
 ```
 
-### 4. Levantar la infraestructura
-Ejecutá el siguiente comando para construir las imágenes y levantar los contenedores:
+### 4. Levantar la infraestructura (Docker Compose)
+Ejecutá el siguiente comando para construir las imágenes y levantar todos los contenedores de forma automatizada:
 ```bash
 docker-compose up --build -d
 ```
+Este comando levantará la base de datos, el almacenamiento MinIO, Redis, la API FastAPI, los workers de preprocesamiento e inferencia, la observabilidad (Loki, Promtail, Grafana), Ollama y el Frontend Dashboard.
+
+*   **API (FastAPI)**: Accesible en `http://localhost:8000/docs`.
+*   **Frontend Dashboard (Next.js)**: Accesible en `http://localhost:8080`.
+*   **Grafana**: Accesible en `http://localhost:3000`.
+*   **MinIO Console**: Accesible en `http://localhost:9001`.
+
+> **Conexión a la API y Servicios (Local vs Nube):**
+> * **Local (Desarrollo/Demo):** No requiere ninguna configuración. El frontend en Docker y la app de PozoCam se conectan automáticamente a los servicios locales (API en `http://localhost:8000`, MinIO en `http://localhost:9000` y Grafana en `http://localhost:3000`).
+> * **Nube (Nuestro Despliegue de Referencia):** Para nuestro entorno en Google Cloud, las IPs públicas de producción (API: `http://34.63.158.31:8000`, MinIO: `http://35.194.31.183:9000` y Grafana: `http://34.172.225.250:3000`) se inyectan al compilar la imagen usando los correspondientes argumentos `--build-arg`. Esto lo realiza de forma automática nuestro workflow de **GitHub Actions** en cada push a `main`.
 
 ### 5. Descargar el modelo de IA (Ollama)
 La primera vez que levantes el proyecto, debés descargar el modelo (aprox. 2GB):
@@ -66,6 +80,15 @@ La primera vez que levantes el proyecto, debés descargar el modelo (aprox. 2GB)
 docker exec -it pics_proyecto-ollama-1 ollama run llama3.2:3b
 ```
 > **Nota**: Si el nombre del contenedor varía, verificalo con `docker ps`.
+
+### 6. Levantar la App móvil de PozoCam (Local)
+La aplicación PozoCam (utilizada para grabar videos y sincronizar telemetría) no forma parte del orquestador local de docker-compose ya que está pensada para ejecutarse en el dispositivo móvil de captura. Para levantarla localmente para desarrollo:
+```bash
+cd front-pozocam-react
+npm install
+npm run dev
+```
+La aplicación estará disponible en `http://localhost:3000` (o `3001` si el puerto 3000 está ocupado por Grafana). Podés ingresar a la pestaña de configuración dentro de la app para ajustar la URL de la API a la que envía los datos (por defecto apuntará a la API local en `http://localhost:8000`).
 
 ---
 
@@ -82,8 +105,8 @@ Para testear el estado actual del sistema y el flujo del modelo, seguí estos pa
 
 ### 2. Flujo de Procesamiento
 Una vez subido el video, el sistema inicia una cadena de tareas asíncronas:
-1. **Preprocesamiento**: El `worker_preprocesamiento.py` extrae los frames del video, sincronizándolos con la metadata GPS. Filtra frames duplicados (si el vehículo está detenido) y los sube temporalmente a un bucket en MinIO.
-2. **Inferencia**: Al finalizar, envía una señal al `worker.py`. Este descarga los frames, los procesa con el modelo **YOLO**, inserta las detecciones en la base de datos y guarda las capturas con las *bounding boxes* en el bucket final de `detecciones`.
+1. **Preprocesamiento**: El `preprocesamiento.py` extrae los frames del video, sincronizándolos con la metadata GPS. Filtra frames duplicados (si el vehículo está detenido) y los sube temporalmente a un bucket en MinIO.
+2. **Inferencia**: Al finalizar, envía una señal al `inferencia.py`. Este descarga los frames, los procesa con el modelo **YOLO**, inserta las detecciones en la base de datos y guarda las capturas con las *bounding boxes* en el bucket final de `detecciones`.
 3. **Limpieza**: Una vez procesado con éxito, el sistema elimina automáticamente el video original, su JSON de metadata y los frames temporales para optimizar el almacenamiento, dejando solo los resultados finales.
 
 ### 3. Verificación de resultados
@@ -143,3 +166,149 @@ El sistema utiliza **llama3.2:3b** ejecutándose localmente. Esto garantiza la p
 7. **Anonimización Automática (Rostros y Patentes):** El sistema difumina de forma automática los rostros de peatones y patentes de vehículos en las imágenes finales asociadas a daños viales. Corre de forma secuencial dos modelos YOLO especializados ([`yolov8s-face-lindevs.pt`](https://github.com/lindevs/yolov8-face) y [`license-plate-finetune-v1s.pt`](https://github.com/morsetechlab/Yolov11-License-Plate-Detection/tree/main)) sobre los frames seleccionados antes de dibujar las anotaciones del bache y subirse a MinIO, asegurando privacidad y cumplimiento de normativas de datos sin ralentizar el pipeline de inferencia principal.
 
 8. **Human-in-the-Loop (Auditoría de Detecciones):** Flujo de revisión manual que permite auditar las detecciones del sistema. Si una detección es catalogada como falso positivo, esta se descarta automáticamente de los reportes y consultas dinámicas, y la imagen original sin anotaciones se transfiere a un bucket de reentrenamiento (`backgrounds-reentrenamiento`) en MinIO para mejorar la precisión del modelo en futuras iteraciones.
+
+---
+
+## Despliegue en la Nube (Google Cloud Platform - GCP)
+
+> Los comandos y configuraciones de esta sección contienen identificadores de proyecto (`pics-moreno-cloud`), cuentas de servicio (`788873585485-compute@developer.gserviceaccount.com`) y direcciones IP específicas de **nuestro despliegue de referencia**.
+> Si deseas desplegar tu propia instancia de la arquitectura, deberás reemplazar estos valores por los correspondientes a tu proyecto y recursos de Google Cloud.
+
+Esta sección detalla los pasos para realizar el despliegue del sistema en **Google Cloud Platform (GCP)** utilizando **Google Kubernetes Engine (GKE)** para la orquestación y **Cloud SQL** para la base de datos PostgreSQL.
+
+### 1. Configuración de la Infraestructura en GCP
+
+#### A. Habilitar APIs requeridas
+En la consola de GCP, habilita los siguientes servicios:
+- **Compute Engine API**
+- **Kubernetes Engine API**
+- **Cloud SQL Admin API**
+
+#### B. Base de Datos en Cloud SQL
+1. Crea una instancia de base de datos utilizando **PostgreSQL v17**.
+2. **Configuración de Hardware**: Para optimizar costos, selecciona la edición **Enterprise** (máquinas más económicas) con **2 vCPUs**, **8 GB de RAM** y **10 GB de almacenamiento**.
+3. Asigna un ID de instancia (ej. `pics-db-moreno`), crea un usuario y contraseña.
+4. Crea una nueva base de datos dentro de la instancia para la aplicación.
+5. **Conexión simplificada (Desarrollo)**: Para evitar configuraciones complejas de red (VPC Peering), puedes habilitar la IP pública de la instancia y agregar una red autorizada `0.0.0.0/0` en la pestaña de conexiones. *Nota: En entornos de producción reales se debe utilizar Cloud SQL Auth Proxy o VPC Peering.*
+
+#### C. Cluster de Kubernetes (GKE)
+1. Dirígete a **Kubernetes Engine > Clusters** y crea un cluster de tipo **Standard** para tener control total de los nodos.
+2. Configura la ubicación en `us-central1-a` (región recomendada por eficiencia de costos).
+3. **Grupo de nodos (Default Pool)**: Configura máquinas de tipo **e2-standard-4** (4 vCPUs, 16 GB de RAM), necesarias para la ejecución eficiente del modelo YOLO y Ollama (Llama 3.2).
+4. Define el tamaño inicial en **2 nodos**.
+
+#### D. Repositorio en Artifact Registry
+1. Busca **Artifact Registry** en la consola de GCP y crea un nuevo repositorio.
+2. Selecciona formato **Docker**.
+3. Elige la región `us-central1` (para estar en la misma ubicación del cluster y reducir latencias/costos de transferencia).
+
+---
+
+### 2. Preparación y Subida de Imágenes
+
+#### A. Autenticación Local
+Asegúrate de tener instalado el [Google Cloud CLI](https://cloud.google.com/sdk/docs/install). Luego ejecuta:
+
+```bash
+# Iniciar sesión en tu cuenta de Google Cloud
+gcloud auth login
+
+# Configurar el proyecto de trabajo actual
+gcloud config set project pics-moreno-cloud
+
+# Configurar credenciales de Docker para la región us-central1
+gcloud auth configure-docker us-central1-docker.pkg.dev
+```
+
+#### B. Construcción y Push de Imágenes Docker
+Ejecuta los siguientes comandos en la raíz del proyecto para compilar y subir las imágenes a Artifact Registry:
+
+```bash
+# 1. API (FastAPI)
+docker build -t us-central1-docker.pkg.dev/pics-moreno-cloud/pics-repo/api-fastapi:v1 ./api
+docker push us-central1-docker.pkg.dev/pics-moreno-cloud/pics-repo/api-fastapi:v1
+
+# 2. Worker Base (Utilizado tanto para Inferencia como para Preprocesamiento)
+docker build -t us-central1-docker.pkg.dev/pics-moreno-cloud/pics-repo/worker-base:v1 -f ./worker/Dockerfile ./worker
+docker push us-central1-docker.pkg.dev/pics-moreno-cloud/pics-repo/worker-base:v1
+
+# 3. Frontend (React / Next.js)
+# NOTA: Si compilás de forma manual (sin usar el CI/CD de GitHub Actions), debés pasar las IPs de GCP con --build-arg
+docker build -t us-central1-docker.pkg.dev/pics-moreno-cloud/pics-repo/frontend:v1 ^
+  --build-arg NEXT_PUBLIC_API_URL=http://34.63.158.31:8000 ^
+  --build-arg NEXT_PUBLIC_MINIO_URL=http://35.194.31.183:9000 ^
+  --build-arg NEXT_PUBLIC_GRAFANA_URL=http://34.172.225.250:3000 ^
+  -f ./frontend-pics/Dockerfile ./frontend-pics
+
+docker push us-central1-docker.pkg.dev/pics-moreno-cloud/pics-repo/frontend:v1
+```
+
+---
+
+### 3. Despliegue en Kubernetes (GKE)
+
+#### A. Conectar kubectl al Cluster
+Ejecuta el siguiente comando para descargar las credenciales de conexión del cluster de GKE:
+
+```bash
+gcloud container clusters get-credentials pics-cluster --zone us-central1-a --project pics-moreno-cloud
+```
+> Si no tienes la herramienta `kubectl` instalada localmente, puedes agregarla con: `gcloud components install kubectl`.
+
+#### B. Permisos de Descarga de Imágenes (Service Account)
+Para que el cluster de GKE pueda descargar las imágenes desde Artifact Registry, debes otorgar el rol de **Lector de Artifact Registry** a la cuenta de servicio por defecto de Compute Engine:
+1. Dirígete a **IAM & Admin > IAM**.
+2. Busca la cuenta de servicio por defecto (ej. `788873585485-compute@developer.gserviceaccount.com`).
+3. Edita sus permisos y agrégale el rol **Lector de Artifact Registry** (Artifact Registry Reader).
+
+#### C. Aplicar Manifiestos de Kubernetes
+Aplica los archivos de configuración YAML en el siguiente orden secuencial:
+
+```bash
+kubectl apply -f k8s/01-secretos.yaml
+kubectl apply -f k8s/02-minio.yaml
+kubectl apply -f k8s/03-redis.yaml
+kubectl apply -f k8s/04-ollama.yaml
+kubectl apply -f k8s/05-api.yaml
+kubectl apply -f k8s/06-workers.yaml
+kubectl apply -f k8s/07-frontend.yaml
+```
+
+Puedes verificar que todos los Pods inicien correctamente ejecutando:
+```bash
+kubectl get pods -w
+```
+
+#### D. Inicializar Modelo de Lenguaje en Ollama
+Una vez que el pod de Ollama esté en estado `Running`, inicializa el modelo Llama 3.2 ejecutando:
+
+```bash
+kubectl exec -it deploy/ollama -- ollama pull llama3.2:3b
+```
+
+---
+
+### 4. Operación y Escalado del Cluster
+
+#### Escalado Dinámico de Workers
+El diseño desacoplado del sistema permite escalar los workers según la demanda de procesamiento de manera independiente:
+
+```bash
+# Escalar los workers de preprocesamiento (extracción de frames)
+kubectl scale deploy/worker-preprocesamiento --replicas=3
+
+# Escalar los workers de inferencia (procesamiento YOLO)
+kubectl scale deploy/worker-inferencia --replicas=3
+```
+
+Para volver a la configuración base de 1 réplica por worker:
+```bash
+kubectl scale deploy/worker-preprocesamiento --replicas=1
+kubectl scale deploy/worker-inferencia --replicas=1
+```
+
+#### Pausar Infraestructura (Ahorro de Costos)
+Para evitar consumos de créditos cuando el sistema no está en uso:
+1. Detén la instancia de **Cloud SQL** desde la consola web.
+2. Reduce la cantidad de nodos del cluster de **GKE** a `0` (en la configuración del grupo de nodos en la consola de GCP).
+3. Para volver a levantar el sistema, primero escala el grupo de nodos a su tamaño habitual (ej. 2 nodos) y luego inicia la instancia de Cloud SQL.

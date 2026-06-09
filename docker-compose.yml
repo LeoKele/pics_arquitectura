@@ -40,6 +40,7 @@ services: # Aquí declaramos todos los contenedores (las piezas) de nuestro sist
       - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@base_datos:5432/${POSTGRES_DB}
       - MINIO_ROOT_USER=${MINIO_ROOT_USER}
       - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
+      - MINIO_PUBLIC_URL=${MINIO_PUBLIC_URL}
       - REDIS_HOST=redis_queue
       - OLLAMA_URL=http://ollama:11434
     ports:
@@ -54,9 +55,9 @@ services: # Aquí declaramos todos los contenedores (las piezas) de nuestro sist
       ollama:
         condition: service_started
     volumes:
-      - ./api:/api
+      - ./api:/app
 
-  worker_procesamiento:
+  worker_inferencia:
     build: ./worker
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@base_datos:5432/${POSTGRES_DB}
@@ -71,7 +72,7 @@ services: # Aquí declaramos todos los contenedores (las piezas) de nuestro sist
 
   worker_preprocesamiento:
     build: ./worker
-    command: python worker_preprocesamiento.py
+    command: python preprocesamiento.py
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@base_datos:5432/${POSTGRES_DB}
       - REDIS_HOST=redis_queue
@@ -122,15 +123,6 @@ services: # Aquí declaramos todos los contenedores (las piezas) de nuestro sist
       - "11434:11434"
     volumes:
       - datos_ollama:/root/.ollama
-
-  frontend:
-    build:
-      context: ./front
-      dockerfile: Dockerfile.frontend
-    container_name: pics_dashboard
-    ports:
-      - "8080:80"
-    restart: unless-stopped
 
 volumes:
   datos_pg:

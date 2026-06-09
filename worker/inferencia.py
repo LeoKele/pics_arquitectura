@@ -193,6 +193,23 @@ while True:
 
             if not minio_client.bucket_exists("detecciones"):
                 minio_client.make_bucket("detecciones")
+            
+            try:
+                import json
+                policy = {
+                    "Version": "2012-10-17",
+                    "Statement": [
+                        {
+                            "Effect": "Allow",
+                            "Principal": {"AWS": ["*"]},
+                            "Action": ["s3:GetObject"],
+                            "Resource": ["arn:aws:s3:::detecciones/*"]
+                        }
+                    ]
+                }
+                minio_client.set_bucket_policy("detecciones", json.dumps(policy))
+            except Exception as pe:
+                logger.warning(f"No se pudo establecer política pública en MinIO: {pe}")
 
             logger.info(f"Buscando frames del video {video_id} en MinIO...")
             objetos_frames = list(

@@ -13,3 +13,5 @@ env/
 # .secrets.baseline
 *.pyc
 .pre-commit-cache/
+.antigravitycli/
+*.pdf

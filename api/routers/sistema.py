@@ -131,7 +131,7 @@ def obtener_inventario_archivos(db: Session = Depends(get_db)):
         logger.error(f"Error en inventario: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-SECRET_KEY = os.getenv("JWT_SECRET_KEY")
+SECRET_KEY = os.getenv("JWT_SECRET_KEY", "default_secret_key_for_development_moreno_pics_2026")
 ALGORITHM = "HS256"
 
 class LoginRequest(BaseModel):
