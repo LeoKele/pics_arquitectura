@@ -124,15 +124,6 @@ services: # Aquí declaramos todos los contenedores (las piezas) de nuestro sist
     volumes:
       - datos_ollama:/root/.ollama
 
-  frontend:
-    build:
-      context: ./frontend-pics
-      dockerfile: Dockerfile
-    container_name: pics_dashboard
-    ports:
-      - "8080:80"
-    restart: unless-stopped
-
 volumes:
   datos_pg:
   datos_minio:
