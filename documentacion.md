@@ -298,7 +298,6 @@ La migración a la nube e infraestructura de Google Cloud Platform (GCP) se encu
 ### 7.2 Automatización de CI/CD (GitHub Actions)
 El repositorio de la arquitectura de software cuenta con un pipeline de CI/CD automatizado configurado a través de GitHub Actions en el directorio `.github/workflows/`:
 *   `deploy-api.yml`: Se activa al detectar cambios en el directorio `api/` de la rama `main`.
-*   `deploy.frontend.yml`: Se activa al detectar cambios en el directorio `frontend/` de la rama `main`.
 
 #### Flujo de Ejecución del Pipeline:
 1.  **Checkout de Código:** Descarga el código actualizado al entorno virtual de GitHub Actions.
@@ -353,8 +352,8 @@ Para garantizar la escalabilidad y la portabilidad del entorno (GCP/Local), la s
 
 *   `api/`: Contiene el Gateway RESTful construido en FastAPI, incluyendo esquemas de validación de datos (Pydantic), ORM de tablas (SQLAlchemy) y la lógica de endpoints para subidas, reportes y Q&A con Ollama.
 *   `worker/`: Aloja la lógica de procesamiento asíncrono en segundo plano (Workers de preprocesamiento y de inferencia/censura YOLO) y los pesos de los modelos de visión viales y de privacidad.
-*   `pozocam/`: Código cliente web optimizado para smartphones que realiza grabación de video offline, geolocalización y subida multipartes.
-*   `frontend/`: Dashboard de administración web municipal integrado con Leaflet.js para la auditoría (HITL) y consulta cartográfica de reportes.
+*   **[pics_frontend_pozocam](https://github.com/LeoKele/pics_frontend_pozocam)** (Repositorio externo): Código cliente web optimizado para smartphones que realiza grabación de video offline, geolocalización y subida multipartes.
+*   **[pics_frontend_dashboard](https://github.com/LeoKele/pics_frontend_dashboard)** (Repositorio externo): Dashboard de administración web municipal integrado con Leaflet.js para la auditoría (HITL) y consulta cartográfica de reportes.
 *   `k8s/`: Manifiestos declarativos YAML para el despliegue administrado en la nube (GKE).
 *   `observabilidad/`: Configuraciones de Promtail para recolectar y centralizar los logs del sistema.
 

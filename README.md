@@ -14,8 +14,11 @@ El proyecto utiliza Docker Compose para orquestar los siguientes servicios:
 - **Almacenamiento de Objetos (MinIO)**: Guarda archivos crudos (`.mp4`, `.json`) y las capturas de las detecciones.
 - **Modelo Ollama**: Ejecuta el modelo de lenguaje "llama3.2:3b" localmente para generar informes ejecutivos.
 - **Observabilidad (Loki + Promtail + Grafana)**: Centralización de logs y monitoreo en tiempo real.
-- **Frontend Dashboard (Next.js / React)**: Panel visual interactivo para visualizar el mapa de detecciones, auditar daños, chatear con la IA de reportes y gestionar el sistema.
-- **PozoCam App (Next.js / React)**: Aplicación móvil para el dispositivo de registro (captura de video y telemetría GPS).
+### Frontends (Repositorios Externos)
+
+Las interfaces de usuario del sistema se encuentran alojadas en sus propios repositorios para mantener el desacoplamiento:
+- **[pics_frontend_dashboard](https://github.com/LeoKele/pics_frontend_dashboard)**: Panel de control interactivo para visualizar el mapa de detecciones, auditar daños, interactuar con el chatbot de reportes y gestionar el sistema.
+- **[pics_frontend_pozocam](https://github.com/LeoKele/pics_frontend_pozocam)**: Aplicación web móvil optimizada para smartphones que realiza la captura de video y registra la telemetría GPS en calle de forma offline.
 
 ## Estructura del Repositorio
 
@@ -32,8 +35,6 @@ El código se organiza de la siguiente manera:
     - `anonimizador.py`: Módulo que gestiona la difuminación de rostros y patentes.
     - `best.pt`: Pesos del modelo YOLO entrenado para detección de daños.
     - `yolov8s-face-lindevs.pt` y `license-plate-finetune-v1s.pt`: Pesos de los modelos de censura
-- **frontend-pics/**: Aplicación Dashboard en Next.js (React) y TailwindCSS para visualización de mapas y auditoría de baches.
-- **front-pozocam-react/**: Aplicación móvil en Next.js (React) para captura de video y sincronización GPS del vehículo.
 - **observabilidad/**: Archivos de configuración para el stack de monitoreo (Promtail).
 - **docker-compose.yml**: Definición de toda la infraestructura como código.
 
@@ -63,16 +64,15 @@ Ejecutá el siguiente comando para construir las imágenes y levantar todos los 
 ```bash
 docker-compose up --build -d
 ```
-Este comando levantará la base de datos, el almacenamiento MinIO, Redis, la API FastAPI, los workers de preprocesamiento e inferencia, la observabilidad (Loki, Promtail, Grafana), Ollama y el Frontend Dashboard.
+Este comando levantará la base de datos, el almacenamiento MinIO, Redis, la API FastAPI, los workers de preprocesamiento e inferencia, la observabilidad (Loki, Promtail, Grafana) y Ollama.
 
 *   **API (FastAPI)**: Accesible en `http://localhost:8000/docs`.
-*   **Frontend Dashboard (Next.js)**: Accesible en `http://localhost:8080`.
 *   **Grafana**: Accesible en `http://localhost:3000`.
 *   **MinIO Console**: Accesible en `http://localhost:9001`.
 
 > **Conexión a la API y Servicios (Local vs Nube):**
-> * **Local (Desarrollo/Demo):** No requiere ninguna configuración. El frontend en Docker y la app de PozoCam se conectan automáticamente a los servicios locales (API en `http://localhost:8000`, MinIO en `http://localhost:9000` y Grafana en `http://localhost:3000`).
-> * **Nube (Nuestro Despliegue de Referencia):** Para nuestro entorno en Google Cloud, las IPs públicas de producción (API: `http://34.63.158.31:8000`, MinIO: `http://35.194.31.183:9000` y Grafana: `http://34.172.225.250:3000`) se inyectan al compilar la imagen usando los correspondientes argumentos `--build-arg`. Esto lo realiza de forma automática nuestro workflow de **GitHub Actions** en cada push a `main`.
+> * **Local (Desarrollo/Demo):** No requiere ninguna configuración especial en el backend. Los frontends externos se conectan automáticamente a los servicios locales (API en `http://localhost:8000`, MinIO en `http://localhost:9000` y Grafana en `http://localhost:3000`).
+> * **Nube (Nuestro Despliegue de Referencia):** Para nuestro entorno en Google Cloud, las IPs públicas de producción (API: `http://34.63.158.31:8000`, MinIO: `http://35.194.31.183:9000` y Grafana: `http://34.172.225.250:3000`) se inyectan al compilar la imagen del frontend usando los correspondientes argumentos `--build-arg` (esto se gestiona automáticamente por el flujo de CI/CD del repositorio del frontend en cada push a `main`).
 
 ### 5. Descargar el modelo de IA (Ollama)
 La primera vez que levantes el proyecto, debés descargar el modelo (aprox. 2GB):
@@ -81,14 +81,26 @@ docker exec -it pics_proyecto-ollama-1 ollama run llama3.2:3b
 ```
 > **Nota**: Si el nombre del contenedor varía, verificalo con `docker ps`.
 
-### 6. Levantar la App móvil de PozoCam (Local)
-La aplicación PozoCam (utilizada para grabar videos y sincronizar telemetría) no forma parte del orquestador local de docker-compose ya que está pensada para ejecutarse en el dispositivo móvil de captura. Para levantarla localmente para desarrollo:
-```bash
-cd front-pozocam-react
-npm install
-npm run dev
-```
-La aplicación estará disponible en `http://localhost:3000` (o `3001` si el puerto 3000 está ocupado por Grafana). Podés ingresar a la pestaña de configuración dentro de la app para ajustar la URL de la API a la que envía los datos (por defecto apuntará a la API local en `http://localhost:8000`).
+### 6. Levantar los Frontends (Local)
+Las aplicaciones cliente (Dashboard e interfaz de captura PozoCam) no forman parte de este repositorio. Para levantarlas localmente para desarrollo, debés clonar sus repositorios externos y seguir sus instrucciones de instalación:
+
+- **[pics_frontend_dashboard](https://github.com/LeoKele/pics_frontend_dashboard)**:
+  ```bash
+  git clone https://github.com/LeoKele/pics_frontend_dashboard.git
+  cd pics_frontend_dashboard
+  npm install
+  npm run dev
+  ```
+  Estará disponible en `http://localhost:3000` o en el puerto alternativo indicado.
+
+- **[pics_frontend_pozocam](https://github.com/LeoKele/pics_frontend_pozocam)**:
+  ```bash
+  git clone https://github.com/LeoKele/pics_frontend_pozocam.git
+  cd pics_frontend_pozocam
+  npm install
+  npm run dev
+  ```
+  Estará disponible en `http://localhost:3001` (o similar). En la pestaña de configuración de la app móvil, podés configurar la dirección IP de tu API local (por defecto `http://localhost:8000`).
 
 ---
 
@@ -231,16 +243,6 @@ docker push us-central1-docker.pkg.dev/pics-moreno-cloud/pics-repo/api-fastapi:v
 # 2. Worker Base (Utilizado tanto para Inferencia como para Preprocesamiento)
 docker build -t us-central1-docker.pkg.dev/pics-moreno-cloud/pics-repo/worker-base:v1 -f ./worker/Dockerfile ./worker
 docker push us-central1-docker.pkg.dev/pics-moreno-cloud/pics-repo/worker-base:v1
-
-# 3. Frontend (React / Next.js)
-# NOTA: Si compilás de forma manual (sin usar el CI/CD de GitHub Actions), debés pasar las IPs de GCP con --build-arg
-docker build -t us-central1-docker.pkg.dev/pics-moreno-cloud/pics-repo/frontend:v1 ^
-  --build-arg NEXT_PUBLIC_API_URL=http://34.63.158.31:8000 ^
-  --build-arg NEXT_PUBLIC_MINIO_URL=http://35.194.31.183:9000 ^
-  --build-arg NEXT_PUBLIC_GRAFANA_URL=http://34.172.225.250:3000 ^
-  -f ./frontend-pics/Dockerfile ./frontend-pics
-
-docker push us-central1-docker.pkg.dev/pics-moreno-cloud/pics-repo/frontend:v1
 ```
 
 ---
@@ -271,7 +273,7 @@ kubectl apply -f k8s/03-redis.yaml
 kubectl apply -f k8s/04-ollama.yaml
 kubectl apply -f k8s/05-api.yaml
 kubectl apply -f k8s/06-workers.yaml
-kubectl apply -f k8s/07-frontend.yaml
+kubectl apply -f k8s/07-frontend.yaml   # (Opcional - No requerido si usas Netlify)
 ```
 
 Puedes verificar que todos los Pods inicien correctamente ejecutando:
