@@ -201,11 +201,13 @@ async def generar_reporte(
 
                 REGLAS DE RAZONAMIENTO OBLIGATORIAS:
                 1. JUSTIFICACIÓN POR POI: Si recomendás una obra urgente, debés mencionar el Punto de Interés (Escuela, Hospital, Parada) que justifica esa urgencia.
+                Ejemplo: "Se requiere bacheo urgente en Calle X debido a su proximidad con el Hospital Y".
                 2. JERARQUÍA VIAL: Las Avenidas y Rutas tienen prioridad natural por volumen de tránsito. Si una calle es residencial pero tiene muchos baches, terminala de priorizar según si conecta con una vía principal.
                 3. PAVIMENTACIÓN ESTRATÉGICA: Para las calles de tierra, justificá la obra como una mejora en la conectividad del barrio o acceso a servicios.
-                4. ORDEN DE URGENCIA: Los datos provistos ya están ordenados desde lo más urgente a lo menos urgente. Respetá esa prioridad al redactar.
+                4. USO DEL SCORE (INTERNO): Usá el score para ordenar las calles de mayor a menor importancia, pero NUNCA escribas el número.
 
                 REGLA DE ORO DE FORMATO:
+                - PROHIBIDO mencionar "Score", "Puntaje" o números decimales.
                 - PROHIBIDO decir "X calle tierra". Usá "tramo de calzada natural/tierra".
                 - Sé profesional, directo y usá un lenguaje técnico (ej. "nudo vial", "arteria principal", "seguridad vial").
 
@@ -213,7 +215,7 @@ async def generar_reporte(
                 - Cobertura de los recorridos:
                 {recorridos_str}
 
-                - Detalle técnico por ubicación (Ordenado por urgencia):
+                - Detalle técnico por ubicación (Hallazgos, POIs y prioridad interna):
                 {contexto_hallazgos_str}
 
                 ESTRUCTURA OBLIGATORIA:
