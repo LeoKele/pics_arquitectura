@@ -215,7 +215,17 @@ def obtener_estado_video(video_id: int, db: Session = Depends(get_db)):
     video = db.query(models.Video).filter(models.Video.id == video_id).first()
     if not video:
         raise HTTPException(status_code=404, detail="Video no encontrado")
-    return {"id": video.id, "estado": video.estado}
+
+    cant = (
+        db.query(models.Deteccion)
+        .filter(
+            models.Deteccion.video_id == video_id,
+            models.Deteccion.estado_auditoria != "falso_positivo",
+        )
+        .count()
+    )
+
+    return {"id": video.id, "estado": video.estado, "detecciones_count": cant}
 
 
 @router.post("/api/v1/video/{video_id}/preguntar", tags=["Inteligencia Artificial"])
