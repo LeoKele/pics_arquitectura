@@ -19,10 +19,21 @@ from sqlalchemy.orm import Session
 router = APIRouter()
 logger = logging.getLogger("api.video")
 
-# --- CLIENTE DEL PROFESOR ---
-ollama_client = AsyncOpenAI(
-    base_url=f"{settings.OLLAMA_URL}/v1", api_key=settings.OLLAMA_TOKEN or "ollama"
-)
+# Configurar el cliente y modelo de forma dinámica según el proveedor
+if settings.LLM_PROVIDER == "gemini":
+    llm_client = AsyncOpenAI(
+        base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+        api_key=settings.GEMINI_API_KEY or "mock-key-for-init",
+    )
+    llm_model = settings.GEMINI_MODEL
+elif settings.LLM_PROVIDER == "openai":
+    llm_client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY or "mock-key-for-init")
+    llm_model = settings.OPENAI_MODEL
+else:
+    llm_client = AsyncOpenAI(
+        base_url=f"{settings.OLLAMA_URL}/v1", api_key=settings.OLLAMA_TOKEN or "ollama"
+    )
+    llm_model = settings.OLLAMA_MODEL
 
 
 class PreguntaRequest(BaseModel):
@@ -315,8 +326,8 @@ async def preguntar_a_video(
             {"role": "user", "content": request.pregunta},
         ]
 
-        respuesta_fase1 = await ollama_client.chat.completions.create(
-            model="llama3.2:3b",
+        respuesta_fase1 = await llm_client.chat.completions.create(
+            model=llm_model,
             messages=mensajes,
             tools=herramientas,
             tool_choice={
@@ -357,22 +368,8 @@ async def preguntar_a_video(
                 arg_lat, arg_lng, radio_pois=400
             )
 
-            mensajes.append(
-                {
-                    "role": "assistant",
-                    "content": mensaje_ia.content or "",
-                    "tool_calls": [
-                        {
-                            "id": tool_call.id,
-                            "type": "function",
-                            "function": {
-                                "name": tool_call.function.name,
-                                "arguments": tool_call.function.arguments,
-                            },
-                        }
-                    ],
-                }
-            )
+            # Preservar el objeto de respuesta original para conservar metadatos de razonamiento (como thought_signature de Gemini)
+            mensajes.append(mensaje_ia)
 
             mensajes.append(
                 {
@@ -383,8 +380,8 @@ async def preguntar_a_video(
                 }
             )
 
-            respuesta_fase2 = await ollama_client.chat.completions.create(
-                model="llama3.2:3b", messages=mensajes, stream=False, temperature=0.1
+            respuesta_fase2 = await llm_client.chat.completions.create(
+                model=llm_model, messages=mensajes, stream=False, temperature=0.1
             )
             texto_final = (
                 respuesta_fase2.choices[0].message.content or "Error al procesar."

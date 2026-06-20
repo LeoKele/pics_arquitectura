@@ -16,9 +16,21 @@ from sqlalchemy.orm import Session
 router = APIRouter()
 logger = logging.getLogger("api.reporte")
 
-ollama_client = AsyncOpenAI(
-    base_url=f"{settings.OLLAMA_URL}/v1", api_key=settings.OLLAMA_TOKEN or "ollama"
-)
+# Configurar el cliente y modelo de forma dinámica según el proveedor
+if settings.LLM_PROVIDER == "gemini":
+    llm_client = AsyncOpenAI(
+        base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+        api_key=settings.GEMINI_API_KEY or "mock-key-for-init",
+    )
+    llm_model = settings.GEMINI_MODEL
+elif settings.LLM_PROVIDER == "openai":
+    llm_client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY or "mock-key-for-init")
+    llm_model = settings.OPENAI_MODEL
+else:
+    llm_client = AsyncOpenAI(
+        base_url=f"{settings.OLLAMA_URL}/v1", api_key=settings.OLLAMA_TOKEN or "ollama"
+    )
+    llm_model = settings.OLLAMA_MODEL
 
 
 class GenerarReporteRequest(BaseModel):
@@ -228,8 +240,8 @@ async def generar_reporte(
 
                 texto_completo = ""
 
-                stream = await ollama_client.chat.completions.create(
-                    model="llama3.2:3b",
+                stream = await llm_client.chat.completions.create(
+                    model=llm_model,
                     messages=[{"role": "user", "content": prompt}],
                     stream=True,
                     temperature=0.1,
