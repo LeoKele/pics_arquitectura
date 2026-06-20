@@ -4,7 +4,7 @@ import re
 
 import models
 from configs.config import settings
-from database import get_db
+from database import SessionLocal, get_db
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from openai import AsyncOpenAI
@@ -64,10 +64,11 @@ async def generar_reporte(
         async def generador_ollama():
             yield " "
 
+            db_gen = SessionLocal()
             try:
                 resumen_recorridos = []
                 for v in videos:
-                    puntos = db.execute(
+                    puntos = db_gen.execute(
                         text("""
                         SELECT ST_Y(geom) as lat, ST_X(geom) as lng
                         FROM deteccion WHERE video_id = :v_id AND estado_auditoria != 'falso_positivo'
@@ -109,7 +110,7 @@ async def generar_reporte(
                     GROUP BY tipo_dano, cluster_id
                 """)
 
-                baches_agrupados = db.execute(
+                baches_agrupados = db_gen.execute(
                     query_global, {"ids": tuple(ids_v)}
                 ).fetchall()
                 agrupacion_calles = {}
@@ -255,18 +256,20 @@ async def generar_reporte(
 
                 if texto_completo.strip():
                     nuevo_reporte = models.Reporte(contenido=texto_completo)
-                    db.add(nuevo_reporte)
-                    db.flush()
+                    db_gen.add(nuevo_reporte)
+                    db_gen.flush()
                     for v in videos:
                         relacion = models.ReporteVideo(
                             video_id=v.id, reporte_id=nuevo_reporte.id
                         )
-                        db.add(relacion)
-                    db.commit()
+                        db_gen.add(relacion)
+                    db_gen.commit()
 
             except Exception as e:
                 logger.error(f"Error en stream: {e}")
                 yield f"\n\n[Error interno: {str(e)}]"
+            finally:
+                db_gen.close()
 
         headers_stream = {
             "Cache-Control": "no-cache",

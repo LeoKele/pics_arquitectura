@@ -378,8 +378,31 @@ async def preguntar_a_video(
                 arg_lat, arg_lng, radio_pois=400
             )
 
-            # Preservar el objeto de respuesta original para conservar metadatos de razonamiento (como thought_signature de Gemini)
-            mensajes.append(mensaje_ia)
+            # Convertir mensaje_ia a diccionario de forma segura preservando extra_content (thought_signature de Gemini)
+            tool_calls_dict = []
+            if getattr(mensaje_ia, "tool_calls", None):
+                for tc in mensaje_ia.tool_calls:
+                    tc_dict = {
+                        "id": tc.id,
+                        "type": tc.type,
+                        "function": {
+                            "name": tc.function.name,
+                            "arguments": tc.function.arguments,
+                        },
+                    }
+                    extra = getattr(tc, "extra_content", None) or getattr(
+                        tc, "model_extra", {}
+                    ).get("extra_content")
+                    if extra:
+                        tc_dict["extra_content"] = extra
+                    tool_calls_dict.append(tc_dict)
+
+            mensaje_ia_dict = {
+                "role": "assistant",
+                "content": mensaje_ia.content,
+                "tool_calls": tool_calls_dict if tool_calls_dict else None,
+            }
+            mensajes.append(mensaje_ia_dict)
 
             mensajes.append(
                 {
