@@ -4,12 +4,13 @@ import logging
 import models
 import schemas
 from database import get_db
+
+# Importamos el cliente de MinIO que ya tenías configurado
+from dependencias import minio_client
 from fastapi import APIRouter, Depends, HTTPException, status
 from geoalchemy2.functions import ST_AsGeoJSON
 from sqlalchemy import text
 from sqlalchemy.orm import Session
-# Importamos el cliente de MinIO que ya tenías configurado
-from dependencias import minio_client
 
 router = APIRouter()
 logger = logging.getLogger("api.deteccion")
@@ -25,13 +26,17 @@ def contar_falsos_positivos_en_minio():
     try:
         if not minio_client.bucket_exists(reentrenamiento_bucket):
             return 0
-        
+
         # list_objects devuelve un iterador, lo convertimos a lista para contarlo
-        objetos = list(minio_client.list_objects(reentrenamiento_bucket, recursive=True))
+        objetos = list(
+            minio_client.list_objects(reentrenamiento_bucket, recursive=True)
+        )
         return len(objetos)
     except Exception as e:
         logger.error(f"Error al contar objetos en MinIO: {e}")
         return 0
+
+
 # ----------------------------------------
 
 
@@ -45,34 +50,52 @@ def obtener_metricas(db: Session = Depends(get_db)):
     logger.info("Calculando métricas generales para el Dashboard")
 
     # 1. Contamos desde PostgreSQL (solo los NO falsos positivos)
-    total_baches = db.query(models.Deteccion).filter(
-        models.Deteccion.tipo_dano == "D40",
-        models.Deteccion.estado_auditoria != "falso_positivo"
-    ).count()
-    
-    total_grietas = db.query(models.Deteccion).filter(
-        models.Deteccion.tipo_dano == "D20",
-        models.Deteccion.estado_auditoria != "falso_positivo"
-    ).count()
-    
-    total_tierras = db.query(models.Deteccion).filter(
-        models.Deteccion.tipo_dano == "calle_tierra",
-        models.Deteccion.estado_auditoria != "falso_positivo"
-    ).count()
+    total_baches = (
+        db.query(models.Deteccion)
+        .filter(
+            models.Deteccion.tipo_dano == "D40",
+            models.Deteccion.estado_auditoria != "falso_positivo",
+        )
+        .count()
+    )
 
-    total_verificados = db.query(models.Deteccion).filter(
-        models.Deteccion.estado_auditoria == "verificado"
-    ).count()
-    
-    total_pendientes = db.query(models.Deteccion).filter(
-        models.Deteccion.estado_auditoria == "pendiente"
-    ).count()
+    total_grietas = (
+        db.query(models.Deteccion)
+        .filter(
+            models.Deteccion.tipo_dano == "D20",
+            models.Deteccion.estado_auditoria != "falso_positivo",
+        )
+        .count()
+    )
+
+    total_tierras = (
+        db.query(models.Deteccion)
+        .filter(
+            models.Deteccion.tipo_dano == "calle_tierra",
+            models.Deteccion.estado_auditoria != "falso_positivo",
+        )
+        .count()
+    )
+
+    total_verificados = (
+        db.query(models.Deteccion)
+        .filter(models.Deteccion.estado_auditoria == "verificado")
+        .count()
+    )
+
+    total_pendientes = (
+        db.query(models.Deteccion)
+        .filter(models.Deteccion.estado_auditoria == "pendiente")
+        .count()
+    )
 
     # 2. Contamos Falsos Positivos directamente desde el almacenamiento físico (MinIO)
     total_falsos_positivos = contar_falsos_positivos_en_minio()
 
     # 3. El total absoluto es la suma de los reales en DB + los descartados en MinIO
-    total_hallazgos = total_baches + total_grietas + total_tierras + total_falsos_positivos
+    total_hallazgos = (
+        total_baches + total_grietas + total_tierras + total_falsos_positivos
+    )
 
     return {
         "total": total_hallazgos,
@@ -81,8 +104,10 @@ def obtener_metricas(db: Session = Depends(get_db)):
         "tierras": total_tierras,
         "verificadas": total_verificados,
         "pendientes": total_pendientes,
-        "falsos": total_falsos_positivos
+        "falsos": total_falsos_positivos,
     }
+
+
 # ----------------------------------------
 
 
@@ -103,8 +128,7 @@ def obtener_detecciones(db: Session = Depends(get_db)):
             models.Deteccion.estado_auditoria,
         )
         # ACÁ ESTABA EL FILTRO. LO DEJAMOS COMO ESTÁ, YA QUE AHORA LAS MÉTRICAS VAN POR OTRO LADO.
-        .filter(models.Deteccion.estado_auditoria != "falso_positivo")
-        .all()
+        .filter(models.Deteccion.estado_auditoria != "falso_positivo").all()
     )
 
     resultado = []
@@ -237,21 +261,30 @@ def auditar_deteccion(
 
 @router.get("/api/v1/trayectorias")
 def obtener_trayectorias(db: Session = Depends(get_db)):
+    from sqlalchemy import func
+
     puntos = (
-        db.query(models.Telemetria)
+        db.query(
+            models.Telemetria.video_id,
+            func.ST_Y(models.Telemetria.geometria).label("lat"),
+            func.ST_X(models.Telemetria.geometria).label("lon"),
+        )
         .order_by(models.Telemetria.video_id, models.Telemetria.tiempo)
         .all()
     )
 
     trayectorias = {}
     for p in puntos:
-        if p.video_id not in trayectorias:
-            trayectorias[p.video_id] = []
+        v_id = p.video_id
+        lat = p.lat
+        lon = p.lon
 
-        # Extraemos lat y lon de PostGIS
-        lon = db.scalar(p.geometria.ST_X())
-        lat = db.scalar(p.geometria.ST_Y())
+        if lat is None or lon is None:
+            continue
 
-        trayectorias[p.video_id].append([lat, lon])
+        if v_id not in trayectorias:
+            trayectorias[v_id] = []
+
+        trayectorias[v_id].append([lat, lon])
 
     return trayectorias  # Devuelve {"video_1": [[lat, lon], [lat, lon]...]}
