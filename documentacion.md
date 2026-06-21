@@ -22,13 +22,14 @@ Este documento presenta de forma integral y centralizada el diseño, desarrollo,
     * 4.3 [Subida Multipartes de Video (Explicación Sencilla e Ingeniería)](#43-subida-multipartes-de-video-explicación-sencilla-e-ingeniería)
     * 4.4 [Integración Geoespacial y Deduplicación Inteligente](#44-integración-geoespacial-y-deduplicación-inteligente)
     * 4.5 [Filtro de Horizonte (ROI) y Anonimización de Privacidad](#45-filtro-de-horizonte-roi-y-anonimización-de-privacidad)
+    * 4.6 [Sembrado de Usuarios por Defecto (Base de Datos)](#46-sembrado-de-usuarios-por-defecto-base-de-datos)
 5. [Ciclo de MLOps: Human-in-the-Loop (HITL) y Reentrenamiento](#5-ciclo-de-mlops-human-in-the-loop-hitl-y-reentrenamiento)
     * 5.1 [Lógica de Auditoría Web y Gestión de Buckets](#51-lógica-de-auditoría-web-y-gestión-de-buckets)
     * 5.2 [La Ciencia del Olvido Catastrófico y Estrategias de Mitigación](#52-la-ciencia-del-olvido-catastrófico-y-estrategias-de-mitigación)
-6. [Enriquecimiento Urbano e Inteligencia Artificial (Ollama)](#6-enriquecimiento-urbano-e-inteligencia-artificial-ollama)
+6. [Enriquecimiento Urbano e Inteligencia Artificial (Ollama / OpenAI / Gemini)](#6-enriquecimiento-urbano-e-inteligencia-artificial-ollama-openai-gemini)
     * 6.1 [Georreferenciación y Priorización Técnica con OpenStreetMap](#61-georreferenciación-y-priorización-técnica-con-openstreetmap)
     * 6.2 [Decisión del Reporte: Prompt Defensivo y Mitigación de Alucinaciones](#62-decisión-del-reporte-prompt-defensivo-y-mitigación-de-alucinaciones)
-    * 6.3 [Flexibilidad de Cómputo e Integración con Clústeres Externos](#63-flexibilidad-de-cómputo-e-integración-con-clústeres-externos)
+    * 6.3 [Flexibilidad de Cómputo e Integración de Proveedores (Ollama / OpenAI / Gemini)](#63-flexibilidad-de-cómputo-e-integración-de-proveedores-ollama-openai-gemini)
 7. [Despliegue, Infraestructura Cloud y CI/CD](#7-despliegue-infraestructura-cloud-y-cicd)
     * 7.1 [Configuración de GKE y Cloud SQL](#71-configuración-de-gke-y-cloud-sql)
     * 7.2 [Automatización de CI/CD (GitHub Actions)](#72-automatización-de-cicd-github-actions)
@@ -68,14 +69,32 @@ La recolección de datos en calle se ejecuta mediante **PozoCam**, una aplicaci�
 
 *   **Grabación Offline con Guardado de Video Local:** Para evitar la pérdida de videos debido a la inestabilidad de la señal móvil 4G/5G en el Conurbano, PozoCam utiliza la librería `localForage`. Los fragmentos grabados de video y la metadata GPS en tiempo real se persisten localmente en la base de datos indexada del navegador (**IndexedDB**). Una vez finalizado el recorrido y recuperada la conectividad estable, el operador puede iniciar la carga segura y finalmente liberar el video grabado.
 *   **Captura de Telemetría GPS Sincronizada:** Utiliza la API de geolocalización de HTML5 para registrar las coordenadas (latitud, longitud, velocidad y precisión) a intervalos regulares, construyendo el archivo de metadatos `.json` con marcas temporales relativas en milisegundos (`elapsed_ms`), lo que permite emparejar la posición física con el segundo exacto del video.
+*   **Monitoreo de Precisión de Señal GPS (Alta Precisión):** La aplicación móvil configura `enableHighAccuracy: true` para forzar el uso del sensor GPS de hardware del dispositivo móvil. Implementa además un umbral de calidad visual en su HUD para reportar el estado de la señal: se considera **GPS OK** si el margen de precisión (`accuracy`) reportado es estrictamente menor a **20 metros**; caso contrario, se emite una advertencia de **GPS BAJO** (habitual en zonas con alta cobertura forestal o puentes), alertando al operario para que detenga la inspección o revise el hardware.
 *   **Carga Directa S3 (Multipart Upload):** Integra la biblioteca de subida `Uppy.js` para segmentar archivos de video de gran tamaño en partes individuales de **5 MB**. Esto reduce significativamente la presión de memoria RAM en el dispositivo móvil y permite reanudar de forma transparente fragmentos que fallaron en el envío.
 
 ### 2.2 Dashboard: El Panel de Gestión y Control Municipal
-Una vez procesados los datos, los directores y operarios municipales acceden a la interfaz de administración:
+Una vez procesados los datos, los operarios municipales acceden a la interfaz de administración:
 *   **Visualización en Mapa Interactivo:** Integra **Leaflet.js** y capas de OpenStreetMap para renderizar todas las fallas físicas detectadas de forma georreferenciada. Los daños se presentan en el mapa y permiten hacer click para abrir un pop-up con la captura fotográfica del daño.
-*   **Monitoreo del Pipeline de Videos:** Muestra un listado en tiempo real con el estado de procesamiento de cada video subido (`pendiente`, `procesando`, `procesado` o `fallido`), permitiendo verificar el progreso de las colas de Redis.
-*   **Panel de Auditoría HITL Integrado:** Permite a los usuarios revisar las detecciones marcadas por la inteligencia artificial, visualizando la predicción y ofreciendo dos botones de control interactivo: "Verificar Falla" o "Falso Positivo". Esto retroalimenta activamente el dataset de reentrenamiento.
-*   **Consola de Reportes y Chat con IA:** Presenta el reporte formal narrativo compilado por Ollama para el video o zona seleccionados. Además, expone un componente de chat interactivo que consume el endpoint `/preguntar` para chatear directamente con el asistente virtual de Moreno sobre los datos de la inspección.
+*   **Visualización de Trayectorias de Recorridos:** El mapa consume el endpoint `/api/v1/trayectorias` de la API para recuperar los puntos GPS cronológicos y renderizar el recorrido que realizó el vehículo de inspección. La ruta se grafica mediante una línea discontinua (**Leaflet Polyline**) de color celeste brillante (`#33ccff`), grosor de `2` píxeles y un patrón de guiones `10, 10` (dashArray), lo que permite a los supervisores auditar exactamente qué calles fueron relevadas físicamente.
+*   **Identificación y Filtrado Interactivo (Leyendas):**
+    *   **Mapeo de Etiquetas Amigables:** Se reemplazaron los códigos técnicos por nombres legibles en la interfaz: `D40` se presenta como **Bache**, `D20` como **Grieta / Fisura** y `calle_tierra` como **Calle de Tierra**.
+    *   **Unificación Estética de Colores:** Los marcadores y gráficos en el mapa se unificaron en una paleta de celestes y azules distinguiendo cada tipo de daño:
+        *   **Bache (`D40`):** Celeste brillante / eléctrico (`#00b8ff`).
+        *   **Grieta / Fisura (`D20`):** Celeste pastel muy claro (`#a3f7ff`).
+        *   **Calle de Tierra (`calle_tierra`):** Azul profundo (`#2266ff`).
+    *   **Popup de Leyendas Interactivas:** El mapa cuenta con una leyenda flotante explicativa que no solo identifica el tipo de anomalía, sino que permite hacer clic en cada categoría para filtrar dinámicamente y ocultar/mostrar ciertos tipos de detecciones en el mapa.
+*   **Control del Umbral de Confianza:** Incluye un control interactivo (slider) en el dashboard que filtra en tiempo real las detecciones visualizadas en el mapa según el nivel de certeza de la predicción. Por ejemplo, al fijar el umbral en 30%, solo se renderizan los daños que posean una confianza mayor o igual al 30%, persistiendo esta preferencia en el `localStorage` del usuario.
+*   **Monitoreo del Pipeline de Videos y Panel de Auditoría HITL:** Muestra el listado en tiempo real con el estado de procesamiento de cada video. A su vez, la tarjeta izquierda **DETECCIONES** sirve de panel de control para que los operadores revisen y auditen cada falla como "Verificada" o "Falso Positivo" ( HITL).
+*   **Gestión y Consola de Reportes de IA:**
+    *   **Tarjetas de Resumen Rápido:** Encabezando el informe de IA, se integraron tarjetas de lectura veloz que sintetizan el estado general de las calles relevadas, el total de baches, grietas y tramos de calzada natural, permitiendo una rápida toma de decisiones.
+    *   **Historial de Reportes y Borrado:** Dispone de un panel lateral para navegar por el historial completo de todos los reportes consolidados del sistema. Además, incluye la posibilidad de eliminar reportes antiguos directamente desde la base de datos (con confirmación de SweetAlert en el frontend).
+    *   **Cálculo de Tramos Viales:** El backend agrupa las detecciones por video y, mediante geocodificación inversa en OpenStreetMap de las coordenadas de inicio y fin, calcula de forma automatizada los nombres de los tramos viales afectados (ej. "Calle X hasta Calle Y"), mostrándolos en la metadata del reporte.
+*   **Chat Interactivo con PozoBot y Streaming:** Permite chatear con el asistente virtual consumiendo el endpoint de `/preguntar`. La API transmite las respuestas en tiempo real mediante *streaming*, permitiendo que el dashboard muestre el texto de forma progresiva a medida que la IA lo genera.
+*   **Métricas Municipales:** Se agregó un botón de **Métricas** en la barra superior. Abre un modal con estadísticas clave consolidadas (daños totales, relación de verificados vs falsos positivos) y gráficos de tendencia de anomalías registradas en el último semestre.
+*   **Acceso Directo a Logs de FastAPI:** Para usuarios con rol `admin`, se expone un botón **Ver Logs** en la barra de navegación que redirige directamente a la consola de Grafana Loki configurada con filtros específicos para el servicio `api_fastapi`.
+*   **Página de Status para Operadores:** El enlace de monitoreo de salud del sistema `/status` (que verifica el estado en tiempo real de FastAPI, PostgreSQL, Redis, MinIO y Ollama) ahora se encuentra habilitado para usuarios con rol `operador`, además de los administradores.
+
+
 
 ---
 
@@ -203,6 +222,11 @@ graph TD
     B4 --> D[MinIO: Bucket 'detecciones']
 ```
 
+#### Helpers de Calidad de Imagen (Pre-filtrado)
+El worker de preprocesamiento posee funciones de control de calidad de fotogramas basadas en OpenCV (actualmente implementadas en `worker/preprocesamiento.py` pero inactivas en el bucle principal):
+*   **Detector de frames borrosos (`es_imagen_borrosa`):** Calcula la varianza del Laplaciano sobre la imagen en escala de grises. Si la varianza es menor a `30.0`, determina que la imagen está movida/borrosa (debido a la velocidad del vehículo o vibración de la cámara) y puede descartarse.
+*   **Detector de frames oscuros (`es_imagen_oscura`):** Evalúa el brillo promedio de la escala de grises. Si es menor a `15.0`, concluye que las condiciones de iluminación son insuficientes (relevamiento nocturno o lente obstruido) y se descarta.
+
 ### 4.3 Subida Multipartes de Video (Explicación Sencilla e Ingeniería)
 
 #### La Explicación Sencilla (Analogía)
@@ -218,8 +242,20 @@ El flujo se expone a través de tres endpoints dentro de la API FastAPI:
 3.  **Subida directa:** El navegador realiza un `PUT` directo de cada chunk al puerto de MinIO, reduciendo la carga del backend de FastAPI.
 4.  **Consolidación y Carga de Telemetría (`POST /api/v1/videos/upload/finalizar`):** El cliente envía el listado de bloques (`ETags`) junto con los datos de telemetría GPS. FastAPI consolida el archivo final en el bucket, persiste el JSON de telemetría y encola la tarea en Redis.
 
-### 5.4 Integración Geoespacial y Deduplicación Inteligente
+#### Solución a Bloqueos de CORS y Mixed Content (Netlify Redirects)
+Dado que los frontends se sirven bajo `HTTPS` en la red de Netlify y el backend de desarrollo en GCP opera temporalmente bajo `HTTP`, el navegador bloquearía la comunicación por directivas de **Mixed Content** y **CORS** (especialmente en la subida binaria `PUT` directa de chunks hacia MinIO).
+Para solucionar esto, se implementaron reglas de redirección en Netlify (`_redirects` en la carpeta `/public` del frontend) que actúan como proxy inverso:
+*   `/api/*` se mapea a `http://34.63.158.31:8000/api/:splat` (API de FastAPI).
+*   `/minio/*` se mapea a `http://35.194.31.183:9000/:splat` (Object Storage de MinIO).
+En el cliente de subida (`uploader.ts`), las firmas devueltas por MinIO que apuntan directamente a su IP/Puerto absoluto se reemplazan dinámicamente con la ruta del proxy local `/minio/` para engañar de forma segura al navegador y saltear los bloqueos sin sobrecargar la API de FastAPI.
+
+### 4.4 Integración Geoespacial y Deduplicación Inteligente
 La telemetría y la persistencia geoespacial de anomalías viales se controlan combinando la indexación geoespacial en base de datos y el motor de tracking visual de YOLO:
+*   **Filtro de Geofencing Municipal (Moreno):** Antes de persistir cualquier dato, el worker valida la coordenada mediante la regla `esta_en_moreno()`. Si el auto cruzó a distritos colindantes, se descarta el procesamiento de ese frame. Los límites lógicos son:
+    *   **Norte:** Latitud $\ge -34.5400$
+    *   **Sur:** Latitud $\le -34.7600$
+    *   **Oeste:** Longitud $\ge -58.8900$
+    *   **Este:** Longitud $\le -58.7250$
 *   **Sincronización Telemetría-Video:** El archivo `.json` de metadatos del video contiene puntos GPS con marcas de tiempo (`elapsed_ms`). Para asociar una coordenada a un daño específico, el worker lee la marca temporal (`tiempo_ms`) grabada en el nombre del frame e interpola de forma lineal la coordenada geográfica más próxima a dicho segundo exacto de grabación.
 *   **Deduplicación Espacial Inteligente (PostGIS):** Para evitar que el sistema guarde múltiples registros del mismo bache físico a lo largo de frames sucesivos, el worker ejecuta una validación híbrida:
     1.  *Deduplicación Visual:* Si el motor **ByteTrack** retiene el mismo identificador visual (`track_id`) ya guardado en la base de datos para ese video, el worker no duplica el registro, sino que actualiza el frame y su nivel de confianza.
@@ -230,12 +266,17 @@ La telemetría y la persistencia geoespacial de anomalías viales se controlan c
         Si coincide en distancia, se asigna el nuevo track al registro espacial existente, unificando la detección física.
 *   **Fotograma Óptimo e Inferencia Limpia:** Al procesar detecciones continuas de un mismo daño, el sistema compara el nivel de confianza de la predicción. Si la nueva detección supera en confianza a la guardada anteriormente, se actualizan las coordenadas y se ejecuta un proceso de limpieza de disco (*Garbage Collection*) que elimina automáticamente el archivo anterior de MinIO, conservando únicamente la captura de mejor calidad visual.
 
-### 5.5 Filtro de Horizonte y Anonimización de Privacidad
+### 4.5 Filtro de Horizonte y Anonimización de Privacidad
 *   **Filtro de Horizonte:** Para descartar falsos positivos en el cielo, árboles o postes de luz, el worker descarta de inmediato cualquier bounding box cuyo centroide vertical esté por encima de la mitad de la imagen (`y_centro < alto_imagen * 0.50`), acotando el análisis a la calzada.
 *   **Anonimización Automática:** Antes de persistir y recortar la imagen anotada del daño en MinIO, el módulo anonimizador procesa de forma secuencial dos modelos YOLO especializados sobre el frame original:
     1.  [`yolov8s-face-lindevs.pt`](https://github.com/lindevs/yolov8-face) para detectar rostros humanos.
     2.  [`license-plate-finetune-v1s.pt`](https://github.com/morsetechlab/Yolov11-License-Plate-Detection/tree/main) para patentes de vehículos.
-    Cualquier caja detectada por estos dos modelos es difuminada aplicando un filtro de **desenfoque gaussiano** (*Gaussian Blur*) directamente sobre la imagen que se almacena en el bucket de detecciones de MinIO, garantizando la anonimización de datos de terceros.
+    Cualquier caja detectada por estos dos modelos es difuminada aplicando un filtro de **desenfoque gaussiano** fuerte con un kernel de `(51, 51)` directamente sobre la imagen que se almacena en el bucket de detecciones de MinIO, garantizando la anonimización de datos de terceros.
+
+### 4.6 Sembrado de Usuarios por Defecto (Base de Datos)
+Para simplificar la inicialización del sistema en despliegues locales y cloud, el backend de la API implementa un sembrador automático de base de datos (`api/main.py`). En el arranque, comprueba la existencia de registros en la tabla `usuarios` y, si se encuentra vacía, inyecta por defecto dos perfiles iniciales con contraseñas hasheadas en SHA-256:
+*   **Perfil Administrador:** Usuario `admin` / Contraseña `admin` (rol `admin`). Otorga acceso total, incluyendo el monitoreo de Grafana Loki y las métricas avanzadas.
+*   **Perfil Operario:** Usuario `operador` / Contraseña `operador` (rol `operador`). Otorga acceso a las tareas de auditoría de fallas, visualización del mapa interactivo y la consola de reportes.
 
 ---
 
@@ -261,28 +302,34 @@ Para mitigar este olvido en el reentrenamiento automatizado en Google Colab:
 
 ---
 
-## 6. Enriquecimiento Urbano e Inteligencia Artificial (Ollama)
+## 6. Enriquecimiento Urbano e Inteligencia Artificial (Ollama / OpenAI / Gemini)
 
-El sistema no se limita a ubicar puntos en un mapa, sino que convierte los datos geoespaciales estructurados en reportes semánticos inteligentes.
+El sistema no se limita a ubicar puntos en un mapa, sino que convierte los datos geoespaciales estructurados en reportes semánticos inteligentes utilizando un selector de LLM dinámico que soporta proveedores locales y en la nube.
 
 ### 6.1 Georreferenciación y Priorización Técnica con OpenStreetMap
-*   **Agrupamiento Espacial:** Las coordenadas individuales de las fallas se agrupan espacialmente a tramos de calle usando el algoritmo de clusterización `ST_ClusterDBSCAN` de PostGIS con un radio de tolerancia de **5 metros**.
+*   **Agrupamiento Espacial:** Las coordenadas individuales de las fallas se agrupan espacialmente a tramos de calle usando el algoritmo de clusterización `ST_ClusterDBSCAN` de PostGIS con un radio de tolerancia de **5 metros** (resolución angular de `0.00005` grados) para calcular el centroide geográfico de cada desperfecto real.
 *   **Enriquecimiento Geográfico (OpenStreetMap):** Mediante `api/services/geo_service.py`, se realiza una consulta inversa para obtener la denominación de la arteria vial y la proximidad a Puntos de Interés (POIs) críticos como escuelas, centros de salud u hospitales a menos de 50 metros.
+*   **Mecanismo de Consulta Inversa con Doble Fallback:** El resolvedor de nombres de calles se comunica con dos proveedores externos para asegurar la continuidad del servicio:
+    1.  **Photon por Komoot (`https://photon.komoot.io`):** Cliente primario de consulta rápida sin límites estrictos de tasa.
+    2.  **Nominatim OpenStreetMap (`https://nominatim.openstreetmap.org`):** Cliente secundario de respaldo en caso de desconexión o latencia alta del primero.
+*   **Caché de Coordenadas por Redondeo Espacial:** Dado que los frames del video son continuos y físicamente adyacentes, realizar llamadas de red en cada segundo causaría un bloqueo inmediato por *Rate Limiting*. El resolvedor trunca y redondea la posición GPS a **3 decimales** (margen de ~100 metros) y almacena los resultados en diccionarios en memoria (`_cache_osm_nombres` y `_cache_osm_contexto`). Si la nueva coordenada cae en el mismo radio mapeado, la respuesta se entrega de forma inmediata (en menos de 1 ms), mitigando la latencia y protegiendo el consumo del API.
 *   **Score de Prioridad Técnica:** Se calcula un puntaje matemático automatizado para priorizar la urgencia de bacheo/pavimentación en cada tramo:
     $$\text{Score} = \left( \text{daños\_totales} + 3\text{ (si calle\_tierra)} + 5\text{ (cercanía a POIs)} \right) \times 1.5\text{ (si es Ruta/Avenida)}$$
 
 ### 6.2 Decisión del Reporte: Prompt Defensivo y Mitigación de Alucinaciones
-Para asegurar que el modelo de lenguaje genere un informe ejecutivo útil, formal y alineado con los datos de producción de la base de datos sin alucinar o filtrar métricas internas de desarrollo, se implementaron técnicas de **Prompt Defensivo** en `api/routers/reporte.py`:
-*   **Regla de Ocultamiento de Métricas:** Se prohíbe explícitamente el uso de las palabras "Score", "Puntaje" o números decimales en el reporte final. El score calculado en PostGIS sirve únicamente para que la IA priorice el ordenamiento estructural del texto de mayor a menor urgencia, ocultando la métrica cuantitativa interna a fin de ofrecer una redacción orgánica de carácter ejecutivo.
+Para asegurar que el modelo de lenguaje genere un informe ejecutivo útil, formal y alinear con los datos reales de la base de datos sin alucinar, se implementaron técnicas de **Prompt Defensivo** compatibles con todos los proveedores de LLM:
+*   **Regla de Ocultamiento de Métricas:** Se prohíbe explícitamente el uso de las palabras "Score", "Puntaje" o números decimales en el reporte final. El score sirve únicamente para priorizar el ordenamiento estructurado del texto de mayor a menor urgencia, ocultando la métrica cuantitativa interna a fin de ofrecer una redacción orgánica de carácter ejecutivo.
 *   **Restricción del Vocabulario de Obra Pública:** Se instruye al modelo a utilizar descripciones formales ("tramos de calzada natural/tierra") y se le prohíbe escribir el conteo directo genérico en su formato crudo (ej: "3 calle tierra").
-*   **Justificación Contextual por POI:** El prompt defensivo obliga al modelo a que cada propuesta urgente de bacheo deba estar justificada citando el POI circundante real detectado (ej: Escuela, Hospital). Esto previene que el LLM invente justificaciones abstractas o recomiende reparaciones sin soporte empírico.
+*   **Justificación Contextual por POI:** El prompt defensivo obliga al modelo a que cada propuesta de bacheo urgente esté justificada citando el POI circundante real detectado (ej: Escuela, Hospital). Esto previene que el LLM invente justificaciones abstractas.
 *   **Prompting del Asistente Vial (`/preguntar`):** En `api/routers/video.py` se implementa un prompt maestro estructurado para restringir las interacciones conversacionales, prohibiendo responder preguntas ajenas al dominio de infraestructura vial y obligando al asistente a responder con un saludo fijo determinista ante aperturas informales de chat.
 
-### 6.3 Flexibilidad de Cómputo e Integración con Clústeres Externos
-El despliegue de **Ollama** con el modelo `llama3.2:3b` se ejecuta en contenedores. El sistema está diseñado de forma desacoplada y flexible respecto al hardware:
-*   **Ajuste de Temperatura a 0.1:** Se fija la temperatura en `0.1` de forma estricta, reduciendo las bifurcaciones y permitiendo que la inferencia sea más predecible y que el modelo siga la estructura definida en el prompt.
+### 6.3 Flexibilidad de Cómputo e Integración de Proveedores (Ollama / OpenAI / Gemini)
+El backend implementa un conector dinámico configurable mediante variables de entorno en el archivo `.env`:
+*   **Soporte de Gemini SDK (Recomendado para Producción):** El backend se integra directamente con el SDK de Gemini. Si se detecta la variable `GEMINI_API_KEY` en el archivo `.env`, el sistema utiliza **Gemini** (por defecto `gemini-2.5-flash`) a través del endpoint de compatibilidad con OpenAI provisto por Google AI Studio. Las credenciales de API Key se pueden crear y obtener desde la plataforma [Google AI Studio](https://aistudio.google.com/).
+*   **Soporte de OpenAI:** Opcionalmente, se puede utilizar la API de OpenAI configurando `LLM_PROVIDER=openai` y proveyendo una `OPENAI_API_KEY` en el archivo `.env`.
+*   **Soporte Local con Ollama:** En caso de no proveer APIs en la nube, el sistema ejecuta de forma local y privada el modelo `llama3.2:3b` mediante contenedores con la temperatura fijada en `0.1` para asegurar predictibilidad y un estricto seguimiento de instrucciones.
+*   **Pruebas en Infraestructura Externa:** Además de la ejecución local o en Google Cloud Platform (GCP), la portabilidad del backend nos permitió evaluar de forma exitosa el sistema con un clúster de Kubernetes externo provisto por la cátedra, simplemente redirigiendo el endpoint de Ollama.
 
-> **Pruebas en Infraestructura Externa:** Además de la ejecución dentro del clúster de Kubernetes auto-administrado en GKE, la portabilidad de Ollama nos permitió evaluar e integrar de forma exitosa el sistema con un clúster de Kubernetes externo provisto por el profesor. Esta versatilidad demuestra que la API puede reorientar sus solicitudes a cualquier endpoint de Ollama externo simplemente editando la variable de entorno.
 
 ---
 
