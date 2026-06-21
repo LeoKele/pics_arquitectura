@@ -46,23 +46,28 @@ async def generar_reporte(
     request: GenerarReporteRequest, db: Session = Depends(get_db)
 ):
     try:
+        # 💥 BLINDAJE: Evita que si 'video_ids' viene vacío se procese toda la base de datos por error
+        if not request.video_ids:
+            raise HTTPException(
+                status_code=400,
+                detail="Debe especificar al menos un ID de video en la lista 'video_ids'."
+            )
+
         query_videos = db.query(models.Video).filter(models.Video.estado == "procesado")
-
-        if request.video_ids:
-            query_videos = query_videos.filter(models.Video.id.in_(request.video_ids))
-
+        query_videos = query_videos.filter(models.Video.id.in_(request.video_ids))
         videos = query_videos.all()
 
         if not videos:
             raise HTTPException(
-                status_code=404, detail="No se encontraron videos procesados"
+                status_code=404, detail="No se encontraron videos procesados para los IDs provistos"
             )
 
         ids_v = [v.id for v in videos]
         logger.info(f"--- INICIO GENERACIÓN REPORTE (Videos: {ids_v}) ---")
 
         async def generador_ollama():
-            yield " " # Latido inicial
+            # Latido inicial para Netlify
+            yield " "
 
             db_gen = SessionLocal()
             try:
@@ -78,25 +83,30 @@ async def generar_reporte(
                     ).fetchall()
 
                     if puntos:
-                        # 💥 LATIDO 1: Antes de consultar la primera calle
-                        yield " " 
-                        inicio = await obtener_nombre_calle(puntos[0].lat, puntos[0].lng)
-                        
-                        # 💥 LATIDO 2: Antes de consultar la última calle
-                        yield " " 
+                        # 🔄 Latido pre-OSM 1
+                        yield " "
+                        inicio = await obtener_nombre_calle(
+                            puntos[0].lat, puntos[0].lng
+                        )
+                        # 🔄 Latido pre-OSM 2
+                        yield " "
                         fin = await obtener_nombre_calle(puntos[-1].lat, puntos[-1].lng)
                         
                         if inicio == fin:
-                            resumen_recorridos.append(f"- Recorrido {v.id}: Principalmente en {inicio}")
+                            resumen_recorridos.append(
+                                f"- Recorrido {v.id}: Principalmente en {inicio}"
+                            )
                         else:
-                            resumen_recorridos.append(f"- Recorrido {v.id}: Desde {inicio} hasta {fin}")
+                            resumen_recorridos.append(
+                                f"- Recorrido {v.id}: Desde {inicio} hasta {fin}"
+                            )
 
                 recorridos_str = "\n".join(resumen_recorridos)
 
                 query_global = text("""
                     WITH clusters AS (
                         SELECT tipo_dano, geom,
-                               -- MAGIA ACÁ: Cambiamos 0.00005 a 0.0015
+                               -- Agrupamos baches/grietas cercanos con DBSCAN
                                ST_ClusterDBSCAN(geom, 0.0015, 1)
                                OVER(PARTITION BY tipo_dano) as cluster_id
                         FROM deteccion WHERE video_id IN :ids AND estado_auditoria != 'falso_positivo'
@@ -117,8 +127,8 @@ async def generar_reporte(
 
                 for b in baches_agrupados:
                     try:
-                        # 💥 LATIDO 3 (EL MÁS IMPORTANTE): Mantiene a Netlify vivo en cada iteración
-                        yield " " 
+                        # 🔄 El latido más importante: mantiene el proxy de Netlify vivo durante el delay de 1.2s
+                        yield " "
                         await asyncio.sleep(1.2)
 
                         contexto = await asyncio.wait_for(
@@ -197,9 +207,7 @@ async def generar_reporte(
 
                 detalles_limpios = []
                 for detalle in detalles_contexto_vial:
-                    # Borra "[Score Prioridad: X.X]"
                     detalle_sin_score = re.sub(r"\[Score Prioridad:.*?\]", "", detalle)
-                    # Borra "(Vía desconocida)"
                     detalle_limpio = detalle_sin_score.replace(
                         "(Vía desconocida)", ""
                     ).strip()
@@ -333,7 +341,6 @@ async def obtener_reporte(video_id: int, db: Session = Depends(get_db)):
     if not reporte:
         raise HTTPException(status_code=404, detail="No se encontró ningún reporte.")
 
-    # Obtener los video_ids asociados a este reporte
     vids = (
         db.query(models.ReporteVideo.video_id)
         .filter(models.ReporteVideo.reporte_id == reporte.id)
