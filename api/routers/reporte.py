@@ -62,7 +62,7 @@ async def generar_reporte(
         logger.info(f"--- INICIO GENERACIÓN REPORTE (Videos: {ids_v}) ---")
 
         async def generador_ollama():
-            yield " "
+            yield " " # Latido inicial
 
             db_gen = SessionLocal()
             try:
@@ -78,18 +78,18 @@ async def generar_reporte(
                     ).fetchall()
 
                     if puntos:
-                        inicio = await obtener_nombre_calle(
-                            puntos[0].lat, puntos[0].lng
-                        )
+                        # 💥 LATIDO 1: Antes de consultar la primera calle
+                        yield " " 
+                        inicio = await obtener_nombre_calle(puntos[0].lat, puntos[0].lng)
+                        
+                        # 💥 LATIDO 2: Antes de consultar la última calle
+                        yield " " 
                         fin = await obtener_nombre_calle(puntos[-1].lat, puntos[-1].lng)
+                        
                         if inicio == fin:
-                            resumen_recorridos.append(
-                                f"- Recorrido {v.id}: Principalmente en {inicio}"
-                            )
+                            resumen_recorridos.append(f"- Recorrido {v.id}: Principalmente en {inicio}")
                         else:
-                            resumen_recorridos.append(
-                                f"- Recorrido {v.id}: Desde {inicio} hasta {fin}"
-                            )
+                            resumen_recorridos.append(f"- Recorrido {v.id}: Desde {inicio} hasta {fin}")
 
                 recorridos_str = "\n".join(resumen_recorridos)
 
@@ -117,13 +117,14 @@ async def generar_reporte(
 
                 for b in baches_agrupados:
                     try:
+                        # 💥 LATIDO 3 (EL MÁS IMPORTANTE): Mantiene a Netlify vivo en cada iteración
+                        yield " " 
                         await asyncio.sleep(1.2)
 
                         contexto = await asyncio.wait_for(
                             obtener_contexto_geografico(b.lat, b.lng), timeout=30.0
                         )
                     except (asyncio.TimeoutError, Exception) as e:
-                        # Ahora si falla, lo vemos en la consola
                         logger.error(f"OSM falló para {b.lat}, {b.lng}. Motivo: {e}")
                         contexto = {
                             "calle": f"Zona GPS {b.lat:.4f}, {b.lng:.4f}",
