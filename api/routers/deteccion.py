@@ -14,24 +14,28 @@ logger = logging.getLogger("api.deteccion")
 
 
 @router.get("/api/v1/detecciones", response_model=list[schemas.DeteccionResponse])
-def obtener_detecciones(db: Session = Depends(get_db)):
+def obtener_detecciones(
+    db: Session = Depends(get_db),
+    incluir_falsos: bool = False,
+):
     logger.info("Consultando todas las detecciones")
 
-    detecciones = (
-        db.query(
-            models.Deteccion.id,
-            models.Deteccion.video_id,
-            models.Deteccion.tipo_dano,
-            models.Deteccion.confianza,
-            ST_AsGeoJSON(models.Deteccion.geom).label("geometria"),
-            models.Deteccion.fecha_deteccion,
-            models.Deteccion.frame_minio_path,
-            models.Deteccion.bbox,
-            models.Deteccion.estado_auditoria,
-        )
-        .filter(models.Deteccion.estado_auditoria != "falso_positivo")
-        .all()
+    query = db.query(
+        models.Deteccion.id,
+        models.Deteccion.video_id,
+        models.Deteccion.tipo_dano,
+        models.Deteccion.confianza,
+        ST_AsGeoJSON(models.Deteccion.geom).label("geometria"),
+        models.Deteccion.fecha_deteccion,
+        models.Deteccion.frame_minio_path,
+        models.Deteccion.bbox,
+        models.Deteccion.estado_auditoria,
     )
+
+    if not incluir_falsos:
+        query = query.filter(models.Deteccion.estado_auditoria != "falso_positivo")
+
+    detecciones = query.all()
 
     resultado = []
     for d in detecciones:
@@ -49,7 +53,9 @@ def obtener_detecciones(db: Session = Depends(get_db)):
             }
         )
 
-    logger.info(f"Devolviendo {len(resultado)} detecciones")
+    logger.info(
+        f"Devolviendo {len(resultado)} detecciones (incluir_falsos={incluir_falsos})"
+    )
     return resultado
 
 

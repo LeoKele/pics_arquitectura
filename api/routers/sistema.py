@@ -62,22 +62,69 @@ async def health_check(response: Response, db: Session = Depends(get_db)):
         servicios["minio"] = f"ERROR: {str(e)}"
         estado_general = "ROJO"
 
-    # 4. Chequeo de Ollama
-    try:
-        url_limpia = settings.OLLAMA_URL.rstrip("/")
-        async with httpx.AsyncClient(timeout=3.0) as client:
-            res = await client.get(f"{url_limpia}/")
-            if res.status_code in [200, 401, 403, 404]:
-                servicios["ollama"] = "OK"
-            else:
-                servicios["ollama"] = f"ERROR: Status {res.status_code}"
+    # 4. Chequeo de LLM (Ollama, OpenAI o Gemini)
+    llm_provider = settings.LLM_PROVIDER
+    if llm_provider == "gemini":
+        if not settings.GEMINI_API_KEY:
+            servicios["ollama"] = "ERROR: Falta API Key de Gemini"
+            if estado_general == "VERDE":
+                estado_general = "AMARILLO"
+        else:
+            try:
+                # Comprobar la conexión con Gemini haciendo un GET mínimo a su endpoint de modelos
+                async with httpx.AsyncClient(timeout=3.0) as client:
+                    res = await client.get(
+                        f"https://generativelanguage.googleapis.com/v1beta/models?key={settings.GEMINI_API_KEY}"
+                    )
+                    if res.status_code == 200:
+                        servicios["ollama"] = f"OK (Gemini: {settings.GEMINI_MODEL})"
+                    else:
+                        servicios["ollama"] = f"ERROR Gemini: Status {res.status_code}"
+                        if estado_general == "VERDE":
+                            estado_general = "AMARILLO"
+            except Exception as e:
+                servicios["ollama"] = f"ERROR Gemini: {str(e)}"
                 if estado_general == "VERDE":
                     estado_general = "AMARILLO"
-    except Exception as e:
-        servicios["ollama"] = "ERROR: Desconectado"
-        logger.error(f"Error en health check de Ollama: {str(e)}")
-        if estado_general == "VERDE":
-            estado_general = "AMARILLO"
+    elif llm_provider == "openai":
+        if not settings.OPENAI_API_KEY:
+            servicios["ollama"] = "ERROR: Falta API Key de OpenAI"
+            if estado_general == "VERDE":
+                estado_general = "AMARILLO"
+        else:
+            try:
+                # Comprobar la conexión con OpenAI haciendo un GET mínimo a su endpoint de modelos
+                async with httpx.AsyncClient(timeout=3.0) as client:
+                    headers = {"Authorization": f"Bearer {settings.OPENAI_API_KEY}"}
+                    res = await client.get(
+                        "https://api.openai.com/v1/models", headers=headers
+                    )
+                    if res.status_code == 200:
+                        servicios["ollama"] = f"OK (OpenAI: {settings.OPENAI_MODEL})"
+                    else:
+                        servicios["ollama"] = f"ERROR OpenAI: Status {res.status_code}"
+                        if estado_general == "VERDE":
+                            estado_general = "AMARILLO"
+            except Exception as e:
+                servicios["ollama"] = f"ERROR OpenAI: {str(e)}"
+                if estado_general == "VERDE":
+                    estado_general = "AMARILLO"
+    else:
+        try:
+            url_limpia = settings.OLLAMA_URL.rstrip("/")
+            async with httpx.AsyncClient(timeout=3.0) as client:
+                res = await client.get(f"{url_limpia}/")
+                if res.status_code in [200, 401, 403, 404]:
+                    servicios["ollama"] = f"OK (Ollama: {settings.OLLAMA_MODEL})"
+                else:
+                    servicios["ollama"] = f"ERROR: Status {res.status_code}"
+                    if estado_general == "VERDE":
+                        estado_general = "AMARILLO"
+        except Exception as e:
+            servicios["ollama"] = "ERROR: Desconectado"
+            logger.error(f"Error en health check de Ollama: {str(e)}")
+            if estado_general == "VERDE":
+                estado_general = "AMARILLO"
 
     if estado_general == "ROJO":
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE

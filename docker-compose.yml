@@ -43,6 +43,11 @@ services: # Aquí declaramos todos los contenedores (las piezas) de nuestro sist
       - MINIO_PUBLIC_URL=${MINIO_PUBLIC_URL}
       - REDIS_HOST=redis_queue
       - OLLAMA_URL=http://ollama:11434
+      - LLM_PROVIDER=${LLM_PROVIDER}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_MODEL=${OPENAI_MODEL}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GEMINI_MODEL=${GEMINI_MODEL}
     ports:
       - "8000:8000" # Exponemos el puerto para que puedas entrar a http://localhost:8000
     depends_on: # Regla de orden: Le dice a Docker que no arranque la API hasta que la base de datos esté funcionando, porque la API la necesita para arrancar.
