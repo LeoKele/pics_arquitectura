@@ -21,6 +21,7 @@ class VideoResponse(BaseModel):
 class VideoStatusResponse(BaseModel):
     id: int
     estado: str
+    detecciones_count: int = 0
 
 
 class DeteccionResponse(BaseModel):

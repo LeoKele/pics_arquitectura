@@ -12,7 +12,7 @@ El proyecto utiliza Docker Compose para orquestar los siguientes servicios:
 - **Base de Datos (PostgreSQL + PostGIS)**: Almacena el estado de los videos y las coordenadas geográficas de las detecciones.
 - **Cola de Mensajes (Redis)**: Gestiona la comunicación asíncrona entre la API y los Workers.
 - **Almacenamiento de Objetos (MinIO)**: Guarda archivos crudos (`.mp4`, `.json`) y las capturas de las detecciones.
-- **Modelo Ollama**: Ejecuta el modelo de lenguaje "llama3.2:3b" localmente para generar informes ejecutivos.
+- **Servicio de IA (Gemini / OpenAI / Ollama)**: Permite compilar reportes ejecutivos narrativos e interactuar con el chatbot de forma flexible. Si se detecta la clave de Gemini en el `.env`, se utiliza Gemini (Google AI Studio) automáticamente; de lo contrario, puede usar OpenAI o el modelo local "llama3.2:3b" de Ollama.
 - **Observabilidad (Loki + Promtail + Grafana)**: Centralización de logs y monitoreo en tiempo real.
 ### Frontends (Repositorios Externos)
 
@@ -69,6 +69,11 @@ Este comando levantará la base de datos, el almacenamiento MinIO, Redis, la API
 *   **API (FastAPI)**: Accesible en `http://localhost:8000/docs`.
 *   **Grafana**: Accesible en `http://localhost:3000`.
 *   **MinIO Console**: Accesible en `http://localhost:9001`.
+
+> **Credenciales de Acceso por Defecto:**
+> En el primer arranque de la base de datos, la API siembra de forma automática dos perfiles para pruebas de inicio de sesión:
+> *   **Administrador:** Usuario `admin` | Contraseña `admin` (acceso a logs, métricas y mapa completo).
+> *   **Operador:** Usuario `operador` | Contraseña `operador` (acceso a mapa, auditorías y reportes).
 
 > **Conexión a la API y Servicios (Local vs Nube):**
 > * **Local (Desarrollo/Demo):** No requiere ninguna configuración especial en el backend. Los frontends externos se conectan automáticamente a los servicios locales (API en `http://localhost:8000`, MinIO en `http://localhost:9000` y Grafana en `http://localhost:3000`).
@@ -148,11 +153,12 @@ Para correr las validaciones manualmente:
 pre-commit run --all-files
 ```
 
-### Modelo de IA (Ollama)
-El sistema utiliza **llama3.2:3b** ejecutándose localmente. Esto garantiza la privacidad de los datos. El flujo es:
-1. La API recopila detecciones de la base de datos.
-2. Se envía un prompt estructurado a Ollama.
-3. Ollama devuelve un análisis narrativo que se guarda en PostgreSQL.
+### Modelo de IA y Reportes (Gemini / OpenAI / Ollama)
+El sistema implementa un selector dinámico de LLM para la generación de reportes y chat interactivo:
+1. **Configuración en `.env`:** El backend busca la variable `GEMINI_API_KEY` en tu archivo `.env`. Si está presente y tiene un valor válido, utiliza el SDK de **Gemini** (modelo por defecto `gemini-2.5-flash`) mediante las APIs de compatibilidad de Google AI Studio. De lo contrario, se puede seleccionar OpenAI (`LLM_PROVIDER=openai`) o por defecto cae en el modelo local **Ollama** (`llama3.2:3b`).
+2. **API Key de Gemini:** Para usar Gemini, debes generar tu clave de API en [Google AI Studio](https://aistudio.google.com/) y configurarla en tu archivo `.env` (`GEMINI_API_KEY=tu_api_key`).
+3. **Flujo de Ejecución:** La API recopila las detecciones de la base de datos (con su georreferenciación y tramos viales calculados), envía un prompt defensivo estructurado al modelo de IA seleccionado y éste genera un análisis narrativo/reporte ejecutivo estructurado.
+
 
 ### Sistema de Observabilidad
 - **Promtail**: Recolecta logs de todos los contenedores Docker.
@@ -178,6 +184,8 @@ El sistema utiliza **llama3.2:3b** ejecutándose localmente. Esto garantiza la p
 7. **Anonimización Automática (Rostros y Patentes):** El sistema difumina de forma automática los rostros de peatones y patentes de vehículos en las imágenes finales asociadas a daños viales. Corre de forma secuencial dos modelos YOLO especializados ([`yolov8s-face-lindevs.pt`](https://github.com/lindevs/yolov8-face) y [`license-plate-finetune-v1s.pt`](https://github.com/morsetechlab/Yolov11-License-Plate-Detection/tree/main)) sobre los frames seleccionados antes de dibujar las anotaciones del bache y subirse a MinIO, asegurando privacidad y cumplimiento de normativas de datos sin ralentizar el pipeline de inferencia principal.
 
 8. **Human-in-the-Loop (Auditoría de Detecciones):** Flujo de revisión manual que permite auditar las detecciones del sistema. Si una detección es catalogada como falso positivo, esta se descarta automáticamente de los reportes y consultas dinámicas, y la imagen original sin anotaciones se transfiere a un bucket de reentrenamiento (`backgrounds-reentrenamiento`) en MinIO para mejorar la precisión del modelo en futuras iteraciones.
+
+9. **Filtro de Geofencing Municipal (Frontera Moreno):** Validación espacial en el worker de inferencia que contrasta las coordenadas contra el polígono de límites del Municipio de Moreno. Si los datos GPS del frame caen fuera de los límites de Moreno (por ejemplo, al cruzar hacia Merlo o Gral. Rodríguez), el frame y sus coordenadas se omiten automáticamente del flujo de almacenamiento de PostGIS para conservar la integridad jurisdiccional.
 
 ---
 

@@ -6,9 +6,10 @@ from typing import Any, Dict, List, Optional
 import models
 import schemas
 from configs.config import settings
-from database import get_db
+from database import SessionLocal, get_db
 from dependencias import minio_client, r, s3_internal_client, s3_public_client
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi.responses import StreamingResponse
 from minio.error import S3Error
 from openai import AsyncOpenAI
 from pydantic import BaseModel
@@ -19,10 +20,21 @@ from sqlalchemy.orm import Session
 router = APIRouter()
 logger = logging.getLogger("api.video")
 
-# --- CLIENTE DEL PROFESOR ---
-ollama_client = AsyncOpenAI(
-    base_url=f"{settings.OLLAMA_URL}/v1", api_key=settings.OLLAMA_TOKEN or "ollama"
-)
+# Configurar el cliente y modelo de forma dinámica según el proveedor
+if settings.LLM_PROVIDER == "gemini":
+    llm_client = AsyncOpenAI(
+        base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+        api_key=settings.GEMINI_API_KEY or "mock-key-for-init",
+    )
+    llm_model = settings.GEMINI_MODEL
+elif settings.LLM_PROVIDER == "openai":
+    llm_client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY or "mock-key-for-init")
+    llm_model = settings.OPENAI_MODEL
+else:
+    llm_client = AsyncOpenAI(
+        base_url=f"{settings.OLLAMA_URL}/v1", api_key=settings.OLLAMA_TOKEN or "ollama"
+    )
+    llm_model = settings.OLLAMA_MODEL
 
 
 class PreguntaRequest(BaseModel):
@@ -204,209 +216,240 @@ def obtener_estado_video(video_id: int, db: Session = Depends(get_db)):
     video = db.query(models.Video).filter(models.Video.id == video_id).first()
     if not video:
         raise HTTPException(status_code=404, detail="Video no encontrado")
-    return {"id": video.id, "estado": video.estado}
+
+    cant = (
+        db.query(models.Deteccion)
+        .filter(
+            models.Deteccion.video_id == video_id,
+            models.Deteccion.estado_auditoria != "falso_positivo",
+        )
+        .count()
+    )
+
+    return {"id": video.id, "estado": video.estado, "detecciones_count": cant}
 
 
 @router.post("/api/v1/video/{video_id}/preguntar", tags=["Inteligencia Artificial"])
-async def preguntar_a_video(
-    video_id: int, request: PreguntaRequest, db: Session = Depends(get_db)
-):
-    try:
-        if video_id == 0:
-            # MODO GLOBAL: Todos los videos
-            detecciones = (
-                db.query(models.Deteccion)
-                .filter(models.Deteccion.estado_auditoria != "falso_positivo")
-                .all()
-            )
-            reporte = (
-                db.query(models.Reporte)
-                .order_by(models.Reporte.fecha_generacion.desc())
-                .first()
-            )
-            contexto_str = "TODOS los videos y recorridos procesados del municipio"
-
-            query_centroide = text("""
-                SELECT ST_Y(ST_Centroid(ST_Collect(geom))) as lat,
-                       ST_X(ST_Centroid(ST_Collect(geom))) as lng
-                FROM deteccion WHERE estado_auditoria != 'falso_positivo'
-            """)
-            centroide = db.execute(query_centroide).fetchone()
-        else:
-            # MODO ESPECÍFICO: Solo un video
-            video = db.query(models.Video).filter(models.Video.id == video_id).first()
-            if not video:
-                raise HTTPException(status_code=404, detail="Video no encontrado")
-            if video.estado != "procesado":
-                raise HTTPException(
-                    status_code=400, detail="El video aún no fue procesado."
+async def preguntar_a_video(video_id: int, request: PreguntaRequest):
+    async def generador_chat():
+        db_gen = SessionLocal()
+        try:
+            if video_id == 0:
+                # MODO GLOBAL: Todos los videos
+                detecciones = (
+                    db_gen.query(models.Deteccion)
+                    .filter(models.Deteccion.estado_auditoria != "falso_positivo")
+                    .all()
                 )
-
-            detecciones = (
-                db.query(models.Deteccion)
-                .filter(
-                    models.Deteccion.video_id == video_id,
-                    models.Deteccion.estado_auditoria != "falso_positivo",
+                reporte = (
+                    db_gen.query(models.Reporte)
+                    .order_by(models.Reporte.fecha_generacion.desc())
+                    .first()
                 )
-                .all()
-            )
-            reporte = (
-                db.query(models.Reporte)
-                .join(models.ReporteVideo)
-                .filter(models.ReporteVideo.video_id == video_id)
-                .order_by(models.Reporte.fecha_generacion.desc())
-                .first()
-            )
-            contexto_str = f"el video #{video_id}"
+                contexto_str = "TODOS los videos y recorridos procesados del municipio"
 
-            query_centroide = text("""
-                SELECT ST_Y(ST_Centroid(ST_Collect(geom))) as lat,
-                       ST_X(ST_Centroid(ST_Collect(geom))) as lng
-                FROM deteccion WHERE video_id = :v_id AND estado_auditoria != 'falso_positivo'
-            """)
-            centroide = db.execute(query_centroide, {"v_id": video_id}).fetchone()
+                query_centroide = text("""
+                    SELECT ST_Y(ST_Centroid(ST_Collect(geom))) as lat,
+                           ST_X(ST_Centroid(ST_Collect(geom))) as lng
+                    FROM deteccion WHERE estado_auditoria != 'falso_positivo'
+                """)
+                centroide = db_gen.execute(query_centroide).fetchone()
+            else:
+                # MODO ESPECÍFICO: Solo un video
+                video = (
+                    db_gen.query(models.Video)
+                    .filter(models.Video.id == video_id)
+                    .first()
+                )
+                if not video:
+                    yield "[Error: Video no encontrado]"
+                    return
+                if video.estado != "procesado":
+                    yield "[Error: El video aún no fue procesado.]"
+                    return
 
-        cantidad = len(detecciones)
+                detecciones = (
+                    db_gen.query(models.Deteccion)
+                    .filter(
+                        models.Deteccion.video_id == video_id,
+                        models.Deteccion.estado_auditoria != "falso_positivo",
+                    )
+                    .all()
+                )
+                reporte = (
+                    db_gen.query(models.Reporte)
+                    .join(models.ReporteVideo)
+                    .filter(models.ReporteVideo.video_id == video_id)
+                    .order_by(models.Reporte.fecha_generacion.desc())
+                    .first()
+                )
+                contexto_str = f"el video #{video_id}"
 
-        reporte_texto = (
-            reporte.contenido[:1500]
-            if reporte and reporte.contenido
-            else "No hay reportes previos."
-        )
+                query_centroide = text("""
+                    SELECT ST_Y(ST_Centroid(ST_Collect(geom))) as lat,
+                           ST_X(ST_Centroid(ST_Collect(geom))) as lng
+                    FROM deteccion WHERE video_id = :v_id AND estado_auditoria != 'falso_positivo'
+                """)
+                centroide = db_gen.execute(
+                    query_centroide, {"v_id": video_id}
+                ).fetchone()
 
-        lat = float(centroide[0]) if centroide and centroide[0] else -34.64
-        lng = float(centroide[1]) if centroide and centroide[1] else -58.79
+            cantidad = len(detecciones)
 
-        herramientas = [
-            {
-                "type": "function",
-                "function": {
-                    "name": "consultar_mapa_osm",
-                    "description": "Obtiene las calles y puntos de interés (escuelas, comercios, etc) reales cercanos a unas coordenadas.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "lat": {"type": "number", "description": "Latitud"},
-                            "lng": {"type": "number", "description": "Longitud"},
-                        },
-                        "required": ["lat", "lng"],
-                    },
-                },
-            }
-        ]
-
-        mensajes = [
-            {
-                "role": "system",
-                "content": (
-                    f"Sos el asistente virtual de infraestructura vial de la Municipalidad de Moreno.\n\n"
-                    f"--- DATOS REALES DE {contexto_str.upper()} ---\n"
-                    f"Cantidad total de baches detectados: {cantidad}\n"
-                    f"Ubicacion: Lat {lat}, Lng {lng}\n"
-                    f"Resumen técnico de la zona: {reporte_texto}\n"
-                    f"-----------------------------------------\n\n"
-                    "REGLAS DE COMPORTAMIENTO (CUMPLIR ESTRICTAMENTE):\n"
-                    "1. SI EL USUARIO SALUDA: Responde UNICAMENTE '¡Hola! Soy tu asistente vial de Moreno. ¿Qué necesitás saber sobre nuestras inspecciones?'.\n"
-                    "2. PREGUNTAS GENERALES: Si te preguntan cuántos baches hay, respondé con la cantidad total mencionada en los datos.\n"
-                    "3. USO DE HERRAMIENTA OBLIGATORIO: Debes usar SIEMPRE la herramienta 'consultar_mapa_osm' antes de responder cualquier cosa sobre un video específico, para saber en qué calle estás.\n"
-                    "4. PROHIBIDO INVENTAR: Basate exclusivamente en los datos reales y el resumen técnico provisto.\n"
-                ),
-            },
-            {"role": "user", "content": request.pregunta},
-        ]
-
-        respuesta_fase1 = await ollama_client.chat.completions.create(
-            model="llama3.2:3b",
-            messages=mensajes,
-            tools=herramientas,
-            tool_choice={
-                "type": "function",
-                "function": {"name": "consultar_mapa_osm"},
-            },
-            stream=False,
-            temperature=0.1,
-        )
-
-        mensaje_ia = respuesta_fase1.choices[0].message
-
-        if getattr(mensaje_ia, "tool_calls", None):
-            logger.info("El Agente decidió usar el mapa de OpenStreetMap.")
-
-            tool_call = mensaje_ia.tool_calls[0]
-            argumentos_crudos = tool_call.function.arguments
-
-            try:
-                argumentos = json.loads(argumentos_crudos) if argumentos_crudos else {}
-            except Exception:
-                argumentos = {}
-
-            arg_lat, arg_lng = lat, lng
-            try:
-                if "lat" in argumentos and isinstance(
-                    argumentos["lat"], (int, float, str)
-                ):
-                    arg_lat = float(argumentos["lat"])
-                if "lng" in argumentos and isinstance(
-                    argumentos["lng"], (int, float, str)
-                ):
-                    arg_lng = float(argumentos["lng"])
-            except (ValueError, TypeError):
-                pass
-
-            datos_osm = await obtener_contexto_geografico(
-                arg_lat, arg_lng, radio_pois=400
+            reporte_texto = (
+                reporte.contenido[:1500]
+                if reporte and reporte.contenido
+                else "No hay reportes previos."
             )
 
-            mensajes.append(
+            lat = float(centroide[0]) if centroide and centroide[0] else -34.64
+            lng = float(centroide[1]) if centroide and centroide[1] else -58.79
+
+            herramientas = [
                 {
-                    "role": "assistant",
-                    "content": mensaje_ia.content or "",
-                    "tool_calls": [
-                        {
-                            "id": tool_call.id,
-                            "type": "function",
+                    "type": "function",
+                    "function": {
+                        "name": "consultar_mapa_osm",
+                        "description": "Obtiene las calles y puntos de interés (escuelas, comercios, etc) reales cercanos a unas coordenadas.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "lat": {"type": "number", "description": "Latitud"},
+                                "lng": {"type": "number", "description": "Longitud"},
+                            },
+                            "required": ["lat", "lng"],
+                        },
+                    },
+                }
+            ]
+
+            mensajes = [
+                {
+                    "role": "system",
+                    "content": (
+                        f"Sos el asistente virtual de infraestructura vial de la Municipalidad de Moreno.\n\n"
+                        f"--- DATOS REALES DE {contexto_str.upper()} ---\n"
+                        f"Cantidad total de baches detectados: {cantidad}\n"
+                        f"Ubicacion: Lat {lat}, Lng {lng}\n"
+                        f"Resumen técnico de la zona: {reporte_texto}\n"
+                        f"-----------------------------------------\n\n"
+                        "REGLAS DE COMPORTAMIENTO (CUMPLIR ESTRICTAMENTE):\n"
+                        "1. SI EL USUARIO SALUDA: Responde UNICAMENTE '¡Hola! Soy tu asistente vial de Moreno. ¿Qué necesitás saber sobre nuestras inspecciones?'.\n"
+                        "2. PREGUNTAS GENERALES: Si te preguntan cuántos baches hay, respondé con la cantidad total mencionada en los datos.\n"
+                        "3. USO DE HERRAMIENTA OBLIGATORIO: Debes usar SIEMPRE la herramienta 'consultar_mapa_osm' antes de responder cualquier cosa sobre un video específico, para saber en qué calle estás.\n"
+                        "4. PROHIBIDO INVENTAR: Basate exclusivamente en los datos reales y el resumen técnico provisto.\n"
+                    ),
+                },
+                {"role": "user", "content": request.pregunta},
+            ]
+
+            respuesta_fase1 = await llm_client.chat.completions.create(
+                model=llm_model,
+                messages=mensajes,
+                tools=herramientas,
+                tool_choice="auto",
+                stream=False,
+                temperature=0.1,
+            )
+
+            mensaje_ia = respuesta_fase1.choices[0].message
+
+            if getattr(mensaje_ia, "tool_calls", None):
+                logger.info("El Agente decidió usar el mapa de OpenStreetMap.")
+
+                tool_call = mensaje_ia.tool_calls[0]
+                argumentos_crudos = tool_call.function.arguments
+
+                try:
+                    argumentos = (
+                        json.loads(argumentos_crudos) if argumentos_crudos else {}
+                    )
+                except Exception:
+                    argumentos = {}
+
+                arg_lat, arg_lng = lat, lng
+                try:
+                    if "lat" in argumentos and isinstance(
+                        argumentos["lat"], (int, float, str)
+                    ):
+                        arg_lat = float(argumentos["lat"])
+                    if "lng" in argumentos and isinstance(
+                        argumentos["lng"], (int, float, str)
+                    ):
+                        arg_lng = float(argumentos["lng"])
+                except (ValueError, TypeError):
+                    pass
+
+                datos_osm = await obtener_contexto_geografico(
+                    arg_lat, arg_lng, radio_pois=400
+                )
+
+                tool_calls_dict = []
+                if getattr(mensaje_ia, "tool_calls", None):
+                    for tc in mensaje_ia.tool_calls:
+                        tc_dict = {
+                            "id": tc.id,
+                            "type": tc.type,
                             "function": {
-                                "name": tool_call.function.name,
-                                "arguments": tool_call.function.arguments,
+                                "name": tc.function.name,
+                                "arguments": tc.function.arguments,
                             },
                         }
-                    ],
+                        extra = getattr(tc, "extra_content", None) or getattr(
+                            tc, "model_extra", {}
+                        ).get("extra_content")
+                        if extra:
+                            tc_dict["extra_content"] = extra
+                        tool_calls_dict.append(tc_dict)
+
+                mensaje_ia_dict = {
+                    "role": "assistant",
+                    "content": mensaje_ia.content,
+                    "tool_calls": tool_calls_dict if tool_calls_dict else None,
                 }
-            )
+                mensajes.append(mensaje_ia_dict)
 
-            mensajes.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": tool_call.id,
-                    "name": tool_call.function.name,
-                    "content": json.dumps(datos_osm),
-                }
-            )
+                mensajes.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "name": tool_call.function.name,
+                        "content": json.dumps(datos_osm),
+                    }
+                )
 
-            respuesta_fase2 = await ollama_client.chat.completions.create(
-                model="llama3.2:3b", messages=mensajes, stream=False, temperature=0.1
-            )
-            texto_final = (
-                respuesta_fase2.choices[0].message.content or "Error al procesar."
-            )
+                stream = await llm_client.chat.completions.create(
+                    model=llm_model, messages=mensajes, stream=True, temperature=0.1
+                )
+                async for chunk in stream:
+                    delta = chunk.choices[0].delta.content or ""
+                    if delta:
+                        yield delta
 
-        else:
-            logger.info("El Agente respondió directamente usando el reporte/contexto.")
-            texto_final = mensaje_ia.content or "Sin respuesta."
+            else:
+                logger.info(
+                    "El Agente respondió directamente usando el reporte/contexto."
+                )
+                yield mensaje_ia.content or "Sin respuesta."
 
-        return {
-            "video_id": video_id,
-            "pregunta": request.pregunta,
-            "respuesta": texto_final,
-        }
+        except Exception as e:
+            logger.error("=== ERROR EN EL AGENTE ===")
+            logger.error(str(e))
+            logger.error(traceback.format_exc())
+            yield f"\n\n[Error interno de IA: {str(e)}]"
+        finally:
+            db_gen.close()
 
-    except Exception as e:
-        logger.error("=== ERROR EN EL AGENTE ===")
-        logger.error(str(e))
-        logger.error(traceback.format_exc())
-        raise HTTPException(
-            status_code=500, detail="Error en la Inteligencia Artificial."
-        )
+    headers_stream = {
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",
+    }
+    return StreamingResponse(
+        generador_chat(), media_type="text/plain", headers=headers_stream
+    )
 
 
 @router.delete("/api/v1/sistema/reset", tags=["Mantenimiento"])

@@ -4,7 +4,7 @@ import re
 
 import models
 from configs.config import settings
-from database import get_db
+from database import SessionLocal, get_db
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from openai import AsyncOpenAI
@@ -16,9 +16,21 @@ from sqlalchemy.orm import Session
 router = APIRouter()
 logger = logging.getLogger("api.reporte")
 
-ollama_client = AsyncOpenAI(
-    base_url=f"{settings.OLLAMA_URL}/v1", api_key=settings.OLLAMA_TOKEN or "ollama"
-)
+# Configurar el cliente y modelo de forma dinámica según el proveedor
+if settings.LLM_PROVIDER == "gemini":
+    llm_client = AsyncOpenAI(
+        base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+        api_key=settings.GEMINI_API_KEY or "mock-key-for-init",
+    )
+    llm_model = settings.GEMINI_MODEL
+elif settings.LLM_PROVIDER == "openai":
+    llm_client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY or "mock-key-for-init")
+    llm_model = settings.OPENAI_MODEL
+else:
+    llm_client = AsyncOpenAI(
+        base_url=f"{settings.OLLAMA_URL}/v1", api_key=settings.OLLAMA_TOKEN or "ollama"
+    )
+    llm_model = settings.OLLAMA_MODEL
 
 
 class GenerarReporteRequest(BaseModel):
@@ -52,10 +64,11 @@ async def generar_reporte(
         async def generador_ollama():
             yield " "
 
+            db_gen = SessionLocal()
             try:
                 resumen_recorridos = []
                 for v in videos:
-                    puntos = db.execute(
+                    puntos = db_gen.execute(
                         text("""
                         SELECT ST_Y(geom) as lat, ST_X(geom) as lng
                         FROM deteccion WHERE video_id = :v_id AND estado_auditoria != 'falso_positivo'
@@ -97,7 +110,7 @@ async def generar_reporte(
                     GROUP BY tipo_dano, cluster_id
                 """)
 
-                baches_agrupados = db.execute(
+                baches_agrupados = db_gen.execute(
                     query_global, {"ids": tuple(ids_v)}
                 ).fetchall()
                 agrupacion_calles = {}
@@ -228,8 +241,8 @@ async def generar_reporte(
 
                 texto_completo = ""
 
-                stream = await ollama_client.chat.completions.create(
-                    model="llama3.2:3b",
+                stream = await llm_client.chat.completions.create(
+                    model=llm_model,
                     messages=[{"role": "user", "content": prompt}],
                     stream=True,
                     temperature=0.1,
@@ -243,18 +256,20 @@ async def generar_reporte(
 
                 if texto_completo.strip():
                     nuevo_reporte = models.Reporte(contenido=texto_completo)
-                    db.add(nuevo_reporte)
-                    db.flush()
+                    db_gen.add(nuevo_reporte)
+                    db_gen.flush()
                     for v in videos:
                         relacion = models.ReporteVideo(
                             video_id=v.id, reporte_id=nuevo_reporte.id
                         )
-                        db.add(relacion)
-                    db.commit()
+                        db_gen.add(relacion)
+                    db_gen.commit()
 
             except Exception as e:
                 logger.error(f"Error en stream: {e}")
                 yield f"\n\n[Error interno: {str(e)}]"
+            finally:
+                db_gen.close()
 
         headers_stream = {
             "Cache-Control": "no-cache",
@@ -272,8 +287,34 @@ async def generar_reporte(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+async def obtener_tramos_para_videos(video_ids: list[int], db: Session) -> str:
+    tramos = []
+    for vid_id in video_ids:
+        puntos = db.execute(
+            text("""
+            SELECT ST_Y(geom) as lat, ST_X(geom) as lng
+            FROM deteccion WHERE video_id = :v_id AND estado_auditoria != 'falso_positivo'
+            ORDER BY fecha_deteccion ASC
+        """),
+            {"v_id": vid_id},
+        ).fetchall()
+
+        if puntos:
+            inicio = await obtener_nombre_calle(puntos[0].lat, puntos[0].lng)
+            fin = await obtener_nombre_calle(puntos[-1].lat, puntos[-1].lng)
+            if inicio == "Calle sin identificar" and fin == "Calle sin identificar":
+                tramos.append(f"Video #{vid_id}")
+            elif inicio == fin:
+                tramos.append(f"{inicio}")
+            else:
+                tramos.append(f"{inicio} hasta {fin}")
+        else:
+            tramos.append(f"Video #{vid_id}")
+    return "; ".join(tramos) if tramos else "Sin recorrido identificado"
+
+
 @router.get("/api/v1/reporte/{video_id}", tags=["Inteligencia Artificial"])
-def obtener_reporte(video_id: int, db: Session = Depends(get_db)):
+async def obtener_reporte(video_id: int, db: Session = Depends(get_db)):
     if video_id == 0:
         reporte = (
             db.query(models.Reporte)
@@ -290,8 +331,77 @@ def obtener_reporte(video_id: int, db: Session = Depends(get_db)):
         )
     if not reporte:
         raise HTTPException(status_code=404, detail="No se encontró ningún reporte.")
+
+    # Obtener los video_ids asociados a este reporte
+    vids = (
+        db.query(models.ReporteVideo.video_id)
+        .filter(models.ReporteVideo.reporte_id == reporte.id)
+        .all()
+    )
+    video_ids = [v[0] for v in vids if v[0] is not None]
+
+    tramos = await obtener_tramos_para_videos(video_ids, db)
+
     return {
         "reporte_id": reporte.id,
         "contenido": reporte.contenido,
         "fecha": reporte.fecha_generacion,
+        "video_ids": video_ids,
+        "tramos": tramos,
     }
+
+
+@router.get("/api/v1/reportes/historial", tags=["Inteligencia Artificial"])
+async def obtener_historial_reportes(db: Session = Depends(get_db)):
+    try:
+        reportes = (
+            db.query(models.Reporte)
+            .order_by(models.Reporte.fecha_generacion.desc())
+            .all()
+        )
+        resultado = []
+        for r in reportes:
+            vids = (
+                db.query(models.ReporteVideo.video_id)
+                .filter(models.ReporteVideo.reporte_id == r.id)
+                .all()
+            )
+            video_ids = [v[0] for v in vids if v[0] is not None]
+
+            tramos = await obtener_tramos_para_videos(video_ids, db)
+
+            resultado.append(
+                {
+                    "id": r.id,
+                    "contenido": r.contenido,
+                    "fecha_generacion": r.fecha_generacion,
+                    "video_ids": video_ids,
+                    "tramos": tramos,
+                }
+            )
+        return resultado
+    except Exception as e:
+        logger.error(f"Error al obtener historial de reportes: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/api/v1/reporte/{reporte_id}", tags=["Inteligencia Artificial"])
+def eliminar_reporte(reporte_id: int, db: Session = Depends(get_db)):
+    try:
+        db.query(models.ReporteVideo).filter(
+            models.ReporteVideo.reporte_id == reporte_id
+        ).delete()
+        reporte = (
+            db.query(models.Reporte).filter(models.Reporte.id == reporte_id).first()
+        )
+        if not reporte:
+            raise HTTPException(status_code=404, detail="Reporte no encontrado")
+        db.delete(reporte)
+        db.commit()
+        return {"mensaje": "Reporte eliminado"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error al eliminar reporte: {e}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
