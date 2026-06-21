@@ -8,9 +8,82 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from geoalchemy2.functions import ST_AsGeoJSON
 from sqlalchemy import text
 from sqlalchemy.orm import Session
+# Importamos el cliente de MinIO que ya tenías configurado
+from dependencias import minio_client
 
 router = APIRouter()
 logger = logging.getLogger("api.deteccion")
+
+
+# --- NUEVA FUNCIÓN PARA CONTAR EN MINIO ---
+def contar_falsos_positivos_en_minio():
+    """
+    Cuenta directamente la cantidad de objetos en el bucket de reentrenamiento.
+    Esto garantiza que el número de falsos positivos sea siempre exacto en el Dashboard.
+    """
+    reentrenamiento_bucket = "backgrounds-reentrenamiento"
+    try:
+        if not minio_client.bucket_exists(reentrenamiento_bucket):
+            return 0
+        
+        # list_objects devuelve un iterador, lo convertimos a lista para contarlo
+        objetos = list(minio_client.list_objects(reentrenamiento_bucket, recursive=True))
+        return len(objetos)
+    except Exception as e:
+        logger.error(f"Error al contar objetos en MinIO: {e}")
+        return 0
+# ----------------------------------------
+
+
+# --- NUEVO ENDPOINT DE MÉTRICAS ---
+@router.get("/api/v1/metricas")
+def obtener_metricas(db: Session = Depends(get_db)):
+    """
+    Devuelve las métricas generales consolidadas para el Dashboard.
+    Combina datos de la base de datos (baches activos) con datos físicos (MinIO).
+    """
+    logger.info("Calculando métricas generales para el Dashboard")
+
+    # 1. Contamos desde PostgreSQL (solo los NO falsos positivos)
+    total_baches = db.query(models.Deteccion).filter(
+        models.Deteccion.tipo_dano == "D40",
+        models.Deteccion.estado_auditoria != "falso_positivo"
+    ).count()
+    
+    total_grietas = db.query(models.Deteccion).filter(
+        models.Deteccion.tipo_dano == "D20",
+        models.Deteccion.estado_auditoria != "falso_positivo"
+    ).count()
+    
+    total_tierras = db.query(models.Deteccion).filter(
+        models.Deteccion.tipo_dano == "calle_tierra",
+        models.Deteccion.estado_auditoria != "falso_positivo"
+    ).count()
+
+    total_verificados = db.query(models.Deteccion).filter(
+        models.Deteccion.estado_auditoria == "verificado"
+    ).count()
+    
+    total_pendientes = db.query(models.Deteccion).filter(
+        models.Deteccion.estado_auditoria == "pendiente"
+    ).count()
+
+    # 2. Contamos Falsos Positivos directamente desde el almacenamiento físico (MinIO)
+    total_falsos_positivos = contar_falsos_positivos_en_minio()
+
+    # 3. El total absoluto es la suma de los reales en DB + los descartados en MinIO
+    total_hallazgos = total_baches + total_grietas + total_tierras + total_falsos_positivos
+
+    return {
+        "total": total_hallazgos,
+        "baches": total_baches,
+        "grietas": total_grietas,
+        "tierras": total_tierras,
+        "verificadas": total_verificados,
+        "pendientes": total_pendientes,
+        "falsos": total_falsos_positivos
+    }
+# ----------------------------------------
 
 
 @router.get("/api/v1/detecciones", response_model=list[schemas.DeteccionResponse])
@@ -29,6 +102,7 @@ def obtener_detecciones(db: Session = Depends(get_db)):
             models.Deteccion.bbox,
             models.Deteccion.estado_auditoria,
         )
+        # ACÁ ESTABA EL FILTRO. LO DEJAMOS COMO ESTÁ, YA QUE AHORA LAS MÉTRICAS VAN POR OTRO LADO.
         .filter(models.Deteccion.estado_auditoria != "falso_positivo")
         .all()
     )
@@ -49,7 +123,7 @@ def obtener_detecciones(db: Session = Depends(get_db)):
             }
         )
 
-    logger.info(f"Devolviendo {len(resultado)} detecciones")
+    logger.info(f"Devolviendo {len(resultado)} detecciones activas")
     return resultado
 
 
