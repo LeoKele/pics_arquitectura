@@ -50,7 +50,7 @@ async def generar_reporte(
         if not request.video_ids:
             raise HTTPException(
                 status_code=400,
-                detail="Debe especificar al menos un ID de video en la lista 'video_ids'."
+                detail="Debe especificar al menos un ID de video en la lista 'video_ids'.",
             )
 
         query_videos = db.query(models.Video).filter(models.Video.estado == "procesado")
@@ -59,16 +59,14 @@ async def generar_reporte(
 
         if not videos:
             raise HTTPException(
-                status_code=404, detail="No se encontraron videos procesados para los IDs provistos"
+                status_code=404,
+                detail="No se encontraron videos procesados para los IDs provistos",
             )
 
         ids_v = [v.id for v in videos]
         logger.info(f"--- INICIO GENERACIÓN REPORTE (Videos: {ids_v}) ---")
 
         async def generador_ollama():
-            # Latido inicial para Netlify
-            yield " "
-
             db_gen = SessionLocal()
             try:
                 resumen_recorridos = []
@@ -83,15 +81,11 @@ async def generar_reporte(
                     ).fetchall()
 
                     if puntos:
-                        # 🔄 Latido pre-OSM 1
-                        yield " "
                         inicio = await obtener_nombre_calle(
                             puntos[0].lat, puntos[0].lng
                         )
-                        # 🔄 Latido pre-OSM 2
-                        yield " "
                         fin = await obtener_nombre_calle(puntos[-1].lat, puntos[-1].lng)
-                        
+
                         if inicio == fin:
                             resumen_recorridos.append(
                                 f"- Recorrido {v.id}: Principalmente en {inicio}"
@@ -127,10 +121,6 @@ async def generar_reporte(
 
                 for b in baches_agrupados:
                     try:
-                        # 🔄 El latido más importante: mantiene el proxy de Netlify vivo durante el delay de 1.2s
-                        yield " "
-                        await asyncio.sleep(1.2)
-
                         contexto = await asyncio.wait_for(
                             obtener_contexto_geografico(b.lat, b.lng), timeout=30.0
                         )
