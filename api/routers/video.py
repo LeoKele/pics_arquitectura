@@ -171,7 +171,7 @@ def finalizar_upload_multipart(
             UploadId=request.upload_id,
             MultipartUpload={"Parts": request.parts},
         )
-        json_filename = request.filename.replace(".webm", ".json")
+        json_filename = request.filename.rsplit(".", 1)[0] + ".json"
 
         try:
             s3_internal_client.put_object(

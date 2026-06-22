@@ -158,7 +158,10 @@ while True:
                 minio_client.fget_object(BUCKET_NAME, nombre_json, ruta_json_local)
                 with open(ruta_json_local, "r") as f:
                     json_completo = json.load(f)
-                    datos_gps = json_completo.get("data", [])
+                    if isinstance(json_completo, list):
+                        datos_gps = json_completo
+                    else:
+                        datos_gps = json_completo.get("data", [])
                 logger.info(f"Éxito: Se cargaron {len(datos_gps)} puntos de GPS.")
 
                 logger.info(f"Procesando trayectoria de {len(datos_gps)} puntos GPS...")
